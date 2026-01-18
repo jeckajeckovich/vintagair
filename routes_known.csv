@@ -1,0 +1,12 @@
+origin_code,origin_name,destination_code,destination_name,aircraft_group
+DYR,Анадырь,PVS,Провидения,AN24
+PVS,Провидения,DYR,Анадырь,AN24
+DYR,Анадырь,ЭГТ,Эгвекинот,AN24
+ЭГТ,Эгвекинот,DYR,Анадырь,AN24
+DYR,Анадырь,KPW,Кепервеем,AN24
+KPW,Кепервеем,DYR,Анадырь,AN24
+DYR,Анадырь,PWE,Певек,AN24
+PWE,Певек,DYR,Анадырь,AN24
+ЯНА,Янракыннот,СИК,Сиреники,MI8
+ЯНА,Янракыннот,PVS,Провидения,MI8
+ЗЛА,Залив Лаврентия,СИК,Сиреники,MI8

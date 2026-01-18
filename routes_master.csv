@@ -1,0 +1,9 @@
+aircraft_type,flight_number,origin_name,origin_code,destination_name,destination_code
+AN24,113,Anadyr,DYR,Provideniya,PVS
+AN24,114,Provideniya,PVS,Anadyr,DYR
+AN24,21,Anadyr,DYR,Pevek,PWE
+AN24,22,Pevek,PWE,Anadyr,DYR
+AN24,25,Anadyr,DYR,Keperveyem,KPW
+AN24,26,Keperveyem,KPW,Anadyr,DYR
+DHC6,11,Anadyr,DYR,Egvekinot Zaliv Kresta,EGT
+DHC6,12,Egvekinot Zaliv Kresta,EGT,Anadyr,DYR

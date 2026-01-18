@@ -1,0 +1,91 @@
+<script>
+const RAW_CSV = `
+date,origin,destination,flight_number,departure,arrival,aircraft,price,available
+27.01.2026,DYR,БНГ,15,10:00,11:20,ANTONOV AN-24,19000.00,9
+11.02.2026,DYR,БНГ,15,10:00,11:20,ANTONOV AN-24,19000.00,9
+22.01.2026,DYR,ВГИ,49,09:30,11:30,DHC-6,7000.00,2
+29.01.2026,DYR,ВГИ,3,10:00,12:00,DHC-6,7000.00,3
+10.02.2026,DYR,KVM,7,09:30,11:35,MI-8,7000.00,7
+`;
+
+const lines = RAW_CSV.trim().split("\n");
+const headers = lines.shift().split(",");
+
+const flights = lines.map(l => {
+  const v = l.split(",");
+  let o = {};
+  headers.forEach((h,i)=>o[h]=v[i]);
+  return o;
+});
+
+const fromSel = document.getElementById("from");
+const toSel = document.getElementById("to");
+const typeSel = document.getElementById("aircraft");
+const dateInp = document.getElementById("date");
+
+function unique(arr){ return [...new Set(arr)]; }
+
+// === ШАГ 1: ОТКУДА ===
+unique(flights.map(f=>f.origin)).forEach(v=>{
+  fromSel.add(new Option(v,v));
+});
+
+// === ШАГ 2: КУДА ===
+fromSel.onchange = () => {
+  toSel.innerHTML = "<option value=''>Куда</option>";
+  typeSel.innerHTML = "<option value=''>Тип ВС</option>";
+
+  unique(
+    flights
+      .filter(f=>f.origin===fromSel.value)
+      .map(f=>f.destination)
+  ).forEach(v=>{
+    toSel.add(new Option(v,v));
+  });
+};
+
+// === ШАГ 3: ТИП ВС ===
+toSel.onchange = () => {
+  typeSel.innerHTML = "<option value=''>Тип ВС</option>";
+
+  unique(
+    flights.filter(f=>
+      f.origin===fromSel.value &&
+      f.destination===toSel.value
+    ).map(f=>f.aircraft)
+  ).forEach(v=>{
+    typeSel.add(new Option(v,v));
+  });
+};
+
+function norm(d){
+  const p=d.split(".");
+  return `${p[2]}-${p[1]}-${p[0]}`;
+}
+
+// === ПОКАЗ ===
+function render(){
+  const tbody=document.getElementById("rows");
+  tbody.innerHTML="";
+
+  flights.filter(f=>
+    (!fromSel.value || f.origin===fromSel.value) &&
+    (!toSel.value || f.destination===toSel.value) &&
+    (!typeSel.value || f.aircraft===typeSel.value) &&
+    (!dateInp.value || norm(f.date)===dateInp.value)
+  ).forEach(f=>{
+    tbody.innerHTML+=`
+    <tr>
+      <td>${f.date}</td>
+      <td>${f.origin}</td>
+      <td>${f.destination}</td>
+      <td>${f.flight_number}</td>
+      <td>${f.departure}</td>
+      <td>${f.arrival}</td>
+      <td>${f.aircraft}</td>
+      <td>${f.price}</td>
+      <td>${f.available}</td>
+    </tr>`;
+  });
+}
+</script>
