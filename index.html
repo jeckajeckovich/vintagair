@@ -76,88 +76,104 @@ th { background: #eee; }
 <div id="map"></div>
 
 <script>
-/* ===== DATA ===== */
-const flights = [
-  {date:'27.01.2026',o:'DYR',d:'БНГ',f:'15',dep:'10:00',arr:'11:20',air:'AN-24',p:19000},
-  {date:'22.01.2026',o:'DYR',d:'ВГИ',f:'49',dep:'09:30',arr:'11:30',air:'DHC-6',p:7000},
-  {date:'29.01.2026',o:'DYR',d:'KPW',f:'25',dep:'10:00',arr:'12:20',air:'AN-24',p:17000},
-  {date:'20.01.2026',o:'DYR',d:'PVS',f:'113',dep:'10:00',arr:'12:00',air:'AN-24',p:15000},
-  {date:'10.02.2026',o:'DYR',d:'KVM',f:'7',dep:'09:30',arr:'11:35',air:'MI-8',p:7000}
-];
+let flights = [];
 
+/* ===== COORDS ===== */
 const coords = {
   DYR:[64.73,177.52],
   PVS:[64.38,-173.23],
   KPW:[67.83,166.13],
   ВГИ:[67.55,175.85],
   БНГ:[66.32,174.12],
-  KVM:[67.05,179.25]
+  KVM:[67.05,179.25],
+  ЭТТ:[65.74,176.69]
 };
-
-/* ===== SELECTS ===== */
-const fromSel = document.getElementById("from");
-const toSel = document.getElementById("to");
-const airSel = document.getElementById("air");
-
-function fill(sel, arr){
-  sel.innerHTML = `<option value="">Все</option>`;
-  [...new Set(arr)].forEach(v=>sel.add(new Option(v,v)));
-}
-
-fill(fromSel, flights.map(f=>f.o));
-fill(toSel, flights.map(f=>f.d));
-fill(airSel, flights.map(f=>f.air));
-
-fromSel.onchange = render;
-toSel.onchange = render;
-airSel.onchange = render;
 
 /* ===== MAP ===== */
 const map = L.map('map').setView([64,180],3);
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
-
 let geoLayer = L.geodesic([], {steps:40}).addTo(map);
+
+/* ===== CSV LOAD ===== */
+fetch('chukotavia_api_results.csv')
+  .then(r => r.text())
+  .then(text => {
+    const lines = text.trim().split('\n');
+    const headers = lines.shift().split(',');
+
+    flights = lines.map(l => {
+      const v = l.split(',');
+      let o = {};
+      headers.forEach((h,i)=>o[h]=v[i]);
+      return o;
+    });
+
+    initFilters();
+    render();
+  });
+
+/* ===== FILTERS ===== */
+function initFilters(){
+  fillSelect('from', flights.map(f=>f.origin));
+  fillSelect('to', flights.map(f=>f.destination));
+  fillSelect('air', flights.map(f=>f.aircraft));
+
+  document.getElementById('from').onchange = render;
+  document.getElementById('to').onchange = render;
+  document.getElementById('air').onchange = render;
+}
+
+function fillSelect(id, arr){
+  const sel = document.getElementById(id);
+  sel.innerHTML = `<option value="">Все</option>`;
+  [...new Set(arr)].forEach(v=>sel.add(new Option(v,v)));
+}
 
 /* ===== RENDER ===== */
 function render(){
-  const data = flights.filter(f =>
-    (!fromSel.value || f.o===fromSel.value) &&
-    (!toSel.value || f.d===toSel.value) &&
-    (!airSel.value || f.air===airSel.value)
+  const f = document.getElementById('from').value;
+  const t = document.getElementById('to').value;
+  const a = document.getElementById('air').value;
+
+  const data = flights.filter(x =>
+    (!f || x.origin===f) &&
+    (!t || x.destination===t) &&
+    (!a || x.aircraft===a)
   );
 
-  document.getElementById("rows").innerHTML = "";
+  document.getElementById('rows').innerHTML='';
   geoLayer.setLatLngs([]);
 
-  data.forEach(f=>{
-    document.getElementById("rows").innerHTML += `
+  data.forEach(x=>{
+    document.getElementById('rows').innerHTML += `
       <tr>
-        <td>${f.date}</td>
-        <td>${f.o}</td>
-        <td>${f.d}</td>
-        <td>${f.f}</td>
-        <td>${f.dep}</td>
-        <td>${f.arr}</td>
-        <td>${f.air}</td>
-        <td><a href="https://booking.chukotavia.com/websky/" target="_blank">
-          <button class="buy">от ${f.p.toLocaleString()} ₽</button></a></td>
+        <td>${x.date}</td>
+        <td>${x.origin}</td>
+        <td>${x.destination}</td>
+        <td>${x.flight_number}</td>
+        <td>${x.departure}</td>
+        <td>${x.arrival}</td>
+        <td>${x.aircraft}</td>
+        <td>
+          <a href="https://booking.chukotavia.com/websky/" target="_blank">
+            <button class="buy">от ${Number(x.price).toLocaleString()} ₽</button>
+          </a>
+        </td>
       </tr>
     `;
 
-    if(coords[f.o] && coords[f.d]){
-      geoLayer.addLatLngs([[coords[f.o],coords[f.d]]]);
+    if(coords[x.origin] && coords[x.destination]){
+      geoLayer.addLatLngs([[coords[x.origin],coords[x.destination]]]);
     }
   });
 }
 
 function resetAll(){
-  fromSel.value="";
-  toSel.value="";
-  airSel.value="";
+  document.getElementById('from').value='';
+  document.getElementById('to').value='';
+  document.getElementById('air').value='';
   render();
 }
-
-render();
 </script>
 
 </body>
