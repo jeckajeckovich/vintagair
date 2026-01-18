@@ -5,11 +5,35 @@
 <title>ЧукотАВИА — доступные рейсы</title>
 
 <style>
-body { font-family: Arial; padding: 20px; }
-table { border-collapse: collapse; width: 100%; margin-top: 15px; }
-th, td { border: 1px solid #ccc; padding: 6px; text-align: center; }
-th { background: #eee; }
-select, input, button { padding: 6px; margin-right: 6px; }
+body { font-family: Arial, sans-serif; padding: 20px; }
+h2 { margin-bottom: 15px; }
+
+select, input, button {
+  padding: 6px;
+  margin-right: 6px;
+}
+
+button {
+  background: #1976d2;
+  color: white;
+  border: none;
+  cursor: pointer;
+}
+button:hover { background: #135aa0; }
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+  margin-top: 15px;
+}
+
+th, td {
+  border: 1px solid #ccc;
+  padding: 6px;
+  text-align: center;
+}
+
+th { background: #f0f0f0; }
 </style>
 </head>
 
@@ -17,86 +41,117 @@ select, input, button { padding: 6px; margin-right: 6px; }
 
 <h2>✈️ ЧукотАВИА — доступные рейсы</h2>
 
-<select id="from"><option value="">Откуда</option></select>
-<select id="to"><option value="">Куда</option></select>
-<select id="aircraft"><option value="">Тип ВС</option></select>
+<select id="from">
+  <option value="">Откуда</option>
+</select>
+
+<select id="to">
+  <option value="">Куда</option>
+</select>
+
+<select id="aircraft">
+  <option value="">Тип ВС</option>
+</select>
+
 <input type="date" id="date">
+
 <button onclick="render()">Показать</button>
 
 <table>
 <thead>
 <tr>
-<th>Дата</th>
-<th>Откуда</th>
-<th>Куда</th>
-<th>Рейс</th>
-<th>Вылет</th>
-<th>Прилёт</th>
-<th>Самолёт</th>
-<th>Цена</th>
-<th>Мест</th>
+  <th>Дата</th>
+  <th>Откуда</th>
+  <th>Куда</th>
+  <th>Рейс</th>
+  <th>Вылет</th>
+  <th>Прилёт</th>
+  <th>Самолёт</th>
+  <th>Цена</th>
+  <th>Мест</th>
 </tr>
 </thead>
 <tbody id="rows"></tbody>
 </table>
 
 <script>
-let flights = [];
+/* ================= CSV ================= */
 
-fetch("chukotavia_api_results.csv")
-  .then(r => r.text())
-  .then(csv => {
-    const lines = csv.trim().split("\n");
-    const headers = lines.shift().split(",");
+const RAW_CSV = `
+date,origin,destination,flight_number,departure,arrival,aircraft,price,available
+27.01.2026,DYR,БНГ,15,10:00,11:20,ANTONOV AN-24,19000.00,9
+11.02.2026,DYR,БНГ,15,10:00,11:20,ANTONOV AN-24,19000.00,9
+22.01.2026,DYR,ВГИ,49,09:30,11:30,DE HAVILLAND DHC-6 TWIN OTTER,7000.00,2
+29.01.2026,DYR,ВГИ,3,10:00,12:00,DE HAVILLAND DHC-6 TWIN OTTER,7000.00,3
+12.02.2026,DYR,ВГИ,3,10:00,12:00,DE HAVILLAND DHC-6 TWIN OTTER,7000.00,8
+09.02.2026,DYR,KPW,25,10:00,12:20,ANTONOV AN-24,17000.00,9
+03.02.2026,DYR,KVM,7,10:00,12:00,DE HAVILLAND DHC-6 TWIN OTTER,7000.00,2
+10.02.2026,DYR,KVM,7,09:30,11:35,MI8/MI17/MI171/MI172,7000.00,7
+19.01.2026,DYR,PWE,21,10:00,12:20,ANTONOV AN-24,17000.00,6
+28.01.2026,DYR,PWE,21,10:00,12:20,ANTONOV AN-24,17000.00,9
+06.02.2026,DYR,PWE,21,10:00,12:20,ANTONOV AN-24,17000.00,9
+20.01.2026,DYR,PVS,113,10:00,12:00,ANTONOV AN-24,15000.00,2
+27.01.2026,БНГ,DYR,16,12:00,13:20,ANTONOV AN-24,19000.00,9
+11.02.2026,БНГ,DYR,16,12:00,13:20,ANTONOV AN-24,19000.00,9
+04.02.2026,ЗЛА,DYR,118,12:50,15:00,ANTONOV AN-24,15000.00,8
+30.01.2026,KPW,DYR,26,13:00,15:20,ANTONOV AN-24,17000.00,9
+09.02.2026,KPW,DYR,26,13:00,15:20,ANTONOV AN-24,17000.00,9
+`;
 
-    flights = lines.map(l => {
-      const v = l.split(",");
-      let o = {};
-      headers.forEach((h,i)=>o[h]=v[i]);
-      return o;
-    });
+/* ================= ПАРСИНГ ================= */
 
-    fillFilters();
-    render();
-  })
-  .catch(e => {
-    alert("❌ Ошибка загрузки CSV");
-    console.error(e);
-  });
+const lines = RAW_CSV.trim().split("\n");
+const headers = lines.shift().split(",");
 
-function fillFilters(){
-  const fromSel = document.getElementById("from");
-  const toSel = document.getElementById("to");
-  const acSel = document.getElementById("aircraft");
+const flights = lines.map(l => {
+  const v = l.split(",");
+  let o = {};
+  headers.forEach((h,i)=>o[h]=v[i]);
+  return o;
+});
 
-  [...new Set(flights.map(f=>f.origin))].sort().forEach(v=>{
-    fromSel.add(new Option(v,v));
-  });
+/* ================= СЕЛЕКТЫ (ОДИН РАЗ) ================= */
 
-  [...new Set(flights.map(f=>f.destination))].sort().forEach(v=>{
-    toSel.add(new Option(v,v));
-  });
+const fromSel = document.getElementById("from");
+const toSel = document.getElementById("to");
+const aircraftSel = document.getElementById("aircraft");
 
-  [...new Set(flights.map(f=>f.aircraft))].sort().forEach(v=>{
-    acSel.add(new Option(v,v));
+function fillSelect(select, values) {
+  values.forEach(v => {
+    select.add(new Option(v, v));
   });
 }
 
-function render(){
-  const from = document.getElementById("from").value;
-  const to = document.getElementById("to").value;
-  const ac = document.getElementById("aircraft").value;
+fillSelect(fromSel, [...new Set(flights.map(f => f.origin))].sort());
+fillSelect(toSel, [...new Set(flights.map(f => f.destination))].sort());
+fillSelect(aircraftSel, [...new Set(flights.map(f => f.aircraft))].sort());
+
+/* ================= ВСПОМОГАТЕЛЬНОЕ ================= */
+
+function normDate(d){
+  const p = d.split(".");
+  return `${p[2]}-${p[1]}-${p[0]}`;
+}
+
+/* ================= РЕНДЕР ================= */
+
+function render() {
+  const from = fromSel.value;
+  const to = toSel.value;
+  const aircraft = aircraftSel.value;
   const date = document.getElementById("date").value;
 
   const tbody = document.getElementById("rows");
   tbody.innerHTML = "";
 
-  flights.filter(f =>
-    (!from || f.origin === from) &&
-    (!to || f.destination === to) &&
-    (!ac || f.aircraft === ac) &&
-    (!date || toISO(f.date) === date)
-  ).forEach(f=>{
+  let result = flights;
+
+  if (from) result = result.filter(f => f.origin === from);
+  if (to) result = result.filter(f => f.destination === to);
+  if (aircraft) result = result.filter(f => f.aircraft === aircraft);
+  if (date) result = result.filter(f => normDate(f.date) === date);
+
+  result.forEach(f => {
     tbody.innerHTML += `
       <tr>
         <td>${f.date}</td>
@@ -106,15 +161,11 @@ function render(){
         <td>${f.departure}</td>
         <td>${f.arrival}</td>
         <td>${f.aircraft}</td>
-        <td>${Number(f.price).toFixed(0)} ₽</td>
+        <td>${Number(f.price).toLocaleString("ru-RU")} ₽</td>
         <td>${f.available}</td>
-      </tr>`;
+      </tr>
+    `;
   });
-}
-
-function toISO(d){
-  const p=d.split(".");
-  return `${p[2]}-${p[1]}-${p[0]}`;
 }
 </script>
 
