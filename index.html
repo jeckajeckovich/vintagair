@@ -4,37 +4,23 @@
 <meta charset="UTF-8">
 <title>VintageAir — рейсы ЧукотАВИА</title>
 
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.geodesic/Leaflet.Geodesic.min.js"></script>
+
 <style>
-body {
-  font-family: Arial, sans-serif;
-  padding: 20px;
-  background: #fafafa;
-}
+body { font-family: Arial; padding: 20px; }
+h2 { margin-bottom: 10px; }
 
-h2 {
-  margin-bottom: 15px;
-}
-
-.controls {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  margin-bottom: 15px;
-}
-
-select, input, button {
-  padding: 8px;
-  font-size: 14px;
-}
-
-button {
-  cursor: pointer;
+.controls select, .controls input, .controls button {
+  padding: 6px;
+  margin-right: 6px;
 }
 
 table {
   border-collapse: collapse;
   width: 100%;
-  background: white;
+  margin-top: 12px;
 }
 
 th, td {
@@ -45,24 +31,20 @@ th, td {
 
 th {
   background: #eee;
+  cursor: pointer;
 }
 
-.buy-btn {
-  background: #007bff;
+.buy {
+  background: #1e88e5;
   color: white;
-  text-decoration: none;
-  padding: 4px 8px;
-  border-radius: 4px;
-  display: inline-block;
+  border: none;
+  padding: 6px 10px;
+  cursor: pointer;
 }
 
-.buy-btn:hover {
-  background: #0056b3;
-}
-
-.empty {
-  margin-top: 10px;
-  color: #666;
+#map {
+  height: 420px;
+  margin-top: 20px;
 }
 </style>
 </head>
@@ -72,134 +54,131 @@ th {
 <h2>✈️ VintageAir — рейсы ЧукотАВИА</h2>
 
 <div class="controls">
-  <select id="from">
-    <option value="">Откуда</option>
-  </select>
-
-  <select id="to">
-    <option value="">Куда</option>
-  </select>
-
-  <select id="aircraft">
-    <option value="">Тип ВС</option>
-  </select>
+  <select id="from"></select>
+  <select id="to"></select>
+  <select id="aircraft"></select>
 
   <input type="date" id="dateFrom">
   <input type="date" id="dateTo">
 
-  <button onclick="render()">Показать</button>
-  <button onclick="resetFilters()">Сброс</button>
+  <button onclick="resetAll()">Сброс</button>
 </div>
 
 <table>
 <thead>
 <tr>
-  <th>Дата</th>
+  <th onclick="sortBy('date')">Дата</th>
   <th>Откуда</th>
   <th>Куда</th>
   <th>Рейс</th>
-  <th>Вылет</th>
+  <th onclick="sortBy('departure')">Вылет</th>
   <th>Прилёт</th>
   <th>Самолёт</th>
-  <th>Цена</th>
-  <th>Мест</th>
-  <th></th>
+  <th onclick="sortBy('price')">Покупка</th>
 </tr>
 </thead>
 <tbody id="rows"></tbody>
 </table>
 
-<div class="empty" id="empty"></div>
+<div id="map"></div>
 
 <script>
-/* ==== CSV ДАННЫЕ ==== */
+/* ================= CSV ================= */
 const RAW_CSV = `
 date,origin,destination,flight_number,departure,arrival,aircraft,price,available
-27.01.2026,DYR,БНГ,15,10:00,11:20,ANTONOV AN-24,19000.00,9
-11.02.2026,DYR,БНГ,15,10:00,11:20,ANTONOV AN-24,19000.00,9
-22.01.2026,DYR,ВГИ,49,09:30,11:30,DE HAVILLAND DHC-6 TWIN OTTER,7000.00,2
-29.01.2026,DYR,ВГИ,3,10:00,12:00,DE HAVILLAND DHC-6 TWIN OTTER,7000.00,3
-12.02.2026,DYR,ВГИ,3,10:00,12:00,DE HAVILLAND DHC-6 TWIN OTTER,7000.00,8
-09.02.2026,DYR,KPW,25,10:00,12:20,ANTONOV AN-24,17000.00,9
-03.02.2026,DYR,KVM,7,10:00,12:00,DE HAVILLAND DHC-6 TWIN OTTER,7000.00,2
-10.02.2026,DYR,KVM,7,09:30,11:35,MI8/MI17/MI171/MI172,7000.00,7
-20.01.2026,DYR,PVS,113,10:00,12:00,ANTONOV AN-24,15000.00,2
+27.01.2026,DYR,БНГ,15,10:00,11:20,ANTONOV AN-24,19000,9
+22.01.2026,DYR,ВГИ,49,09:30,11:30,DHC-6,7000,2
+29.01.2026,DYR,KPW,25,10:00,12:20,ANTONOV AN-24,17000,9
+20.01.2026,DYR,PVS,113,10:00,12:00,ANTONOV AN-24,15000,2
+10.02.2026,DYR,KVM,7,09:30,11:35,MI-8,7000,7
 `;
 
-/* ==== ПАРСИНГ CSV ==== */
+/* ================= DATA ================= */
 const lines = RAW_CSV.trim().split("\n");
 const headers = lines.shift().split(",");
 
-const flights = lines.map(l => {
+let flights = lines.map(l => {
   const v = l.split(",");
   let o = {};
   headers.forEach((h,i)=>o[h]=v[i]);
+  o.price = Number(o.price);
   return o;
 });
 
-/* ==== ЗАПОЛНЕНИЕ ФИЛЬТРОВ ==== */
+/* ================= FILTERS ================= */
 const fromSel = document.getElementById("from");
 const toSel = document.getElementById("to");
-const aircraftSel = document.getElementById("aircraft");
+const acSel = document.getElementById("aircraft");
 
-[...new Set(flights.map(f=>f.origin))].sort().forEach(v=>{
-  fromSel.add(new Option(v,v));
-});
-
-[...new Set(flights.map(f=>f.destination))].sort().forEach(v=>{
-  toSel.add(new Option(v,v));
-});
-
-[...new Set(flights.map(f=>f.aircraft))].sort().forEach(v=>{
-  aircraftSel.add(new Option(v,v));
-});
-
-/* ==== УТИЛИТЫ ==== */
-function toISO(d){
-  const [dd,mm,yy] = d.split(".");
-  return `${yy}-${mm}-${dd}`;
+function fillSelect(sel, values){
+  sel.innerHTML = `<option value="">Все</option>`;
+  [...new Set(values)].forEach(v=>{
+    sel.add(new Option(v,v));
+  });
 }
 
-function resetFilters(){
-  fromSel.value = "";
-  toSel.value = "";
-  aircraftSel.value = "";
-  dateFrom.value = "";
-  dateTo.value = "";
+fillSelect(fromSel, flights.map(f=>f.origin));
+fillSelect(toSel, flights.map(f=>f.destination));
+fillSelect(acSel, flights.map(f=>f.aircraft));
+
+fromSel.onchange = render;
+toSel.onchange = render;
+acSel.onchange = render;
+dateFrom.onchange = render;
+dateTo.onchange = render;
+
+/* ================= SORT ================= */
+let sortKey = null;
+let asc = true;
+
+function sortBy(k){
+  asc = sortKey === k ? !asc : true;
+  sortKey = k;
   render();
 }
 
-/* ==== РЕНДЕР ==== */
+/* ================= MAP ================= */
+const map = L.map('map').setView([64, 175], 3);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+let geoLayer = null;
+
+const coords = {
+  DYR:[64.73,177.52],
+  PVS:[64.38,-173.23],
+  KPW:[67.83,166.13],
+  ВГИ:[67.55,175.85],
+  БНГ:[66.32,174.12],
+  KVM:[67.05,179.25]
+};
+
+function drawMap(data){
+  if(geoLayer) map.removeLayer(geoLayer);
+  geoLayer = L.geodesic(
+    data.map(f=>[coords[f.origin], coords[f.destination]]),
+    { color:'red', steps:40 }
+  ).addTo(map);
+}
+
+/* ================= RENDER ================= */
 function render(){
-  const tbody = document.getElementById("rows");
-  const empty = document.getElementById("empty");
-  tbody.innerHTML = "";
-  empty.textContent = "";
+  let data = flights.filter(f =>
+    (!fromSel.value || f.origin===fromSel.value) &&
+    (!toSel.value || f.destination===toSel.value) &&
+    (!acSel.value || f.aircraft===acSel.value)
+  );
 
-  const fFrom = fromSel.value;
-  const fTo = toSel.value;
-  const fAircraft = aircraftSel.value;
-  const dFrom = dateFrom.value;
-  const dTo = dateTo.value;
-
-  const res = flights.filter(f=>{
-    if (fFrom && f.origin !== fFrom) return false;
-    if (fTo && f.destination !== fTo) return false;
-    if (fAircraft && f.aircraft !== fAircraft) return false;
-
-    const iso = toISO(f.date);
-    if (dFrom && iso < dFrom) return false;
-    if (dTo && iso > dTo) return false;
-
-    return true;
-  });
-
-  if (!res.length) {
-    empty.textContent = "Рейсы не найдены";
-    return;
+  if(sortKey){
+    data.sort((a,b)=>{
+      if(sortKey==="price") return asc ? a.price-b.price : b.price-a.price;
+      return asc ? a[sortKey].localeCompare(b[sortKey]) : b[sortKey].localeCompare(a[sortKey]);
+    });
   }
 
-  res.forEach(f=>{
+  const tbody = document.getElementById("rows");
+  tbody.innerHTML="";
+
+  data.forEach(f=>{
+    const link = `https://booking.chukotavia.com/websky/?from=${f.origin}&to=${f.destination}&date=${f.date}`;
     tbody.innerHTML += `
     <tr>
       <td>${f.date}</td>
@@ -209,20 +188,24 @@ function render(){
       <td>${f.departure}</td>
       <td>${f.arrival}</td>
       <td>${f.aircraft}</td>
-      <td>${Number(f.price).toLocaleString("ru-RU")} ₽</td>
-      <td>${f.available ?? "—"}</td>
-      <td>
-        <a class="buy-btn" href="https://booking.chukotavia.com/websky/" target="_blank">
-          Купить
-        </a>
-      </td>
+      <td><a href="${link}" target="_blank"><button class="buy">от ${f.price.toLocaleString()} ₽</button></a></td>
     </tr>`;
   });
+
+  drawMap(data);
 }
 
-/* ==== ПОКАЗ ПРИ ЗАГРУЗКЕ ==== */
+function resetAll(){
+  fromSel.value="";
+  toSel.value="";
+  acSel.value="";
+  dateFrom.value="";
+  dateTo.value="";
+  sortKey=null;
+  render();
+}
+
 render();
 </script>
-
 </body>
 </html>
