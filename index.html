@@ -12,7 +12,7 @@
 body { font-family: Arial; padding: 20px; }
 h2 { margin-bottom: 10px; }
 
-.controls select, .controls button {
+.controls select, .controls input, .controls button {
   padding: 6px;
   margin-right: 6px;
 }
@@ -29,7 +29,10 @@ th, td {
   text-align: center;
 }
 
-th { background: #eee; }
+th {
+  background: #eee;
+  cursor: pointer;
+}
 
 .buy {
   background: #1e88e5;
@@ -53,21 +56,25 @@ th { background: #eee; }
 <div class="controls">
   <select id="from"></select>
   <select id="to"></select>
-  <select id="air"></select>
+  <select id="aircraft"></select>
+
+  <input type="date" id="dateFrom">
+  <input type="date" id="dateTo">
+
   <button onclick="resetAll()">Сброс</button>
 </div>
 
 <table>
 <thead>
 <tr>
-  <th>Дата</th>
+  <th onclick="sortBy('date')">Дата</th>
   <th>Откуда</th>
   <th>Куда</th>
   <th>Рейс</th>
-  <th>Вылет</th>
+  <th onclick="sortBy('departure')">Вылет</th>
   <th>Прилёт</th>
   <th>Самолёт</th>
-  <th>Покупка</th>
+  <th onclick="sortBy('price')">Покупка</th>
 </tr>
 </thead>
 <tbody id="rows"></tbody>
@@ -76,105 +83,129 @@ th { background: #eee; }
 <div id="map"></div>
 
 <script>
-let flights = [];
+/* ================= CSV ================= */
+const RAW_CSV = `
+date,origin,destination,flight_number,departure,arrival,aircraft,price,available
+27.01.2026,DYR,БНГ,15,10:00,11:20,ANTONOV AN-24,19000,9
+22.01.2026,DYR,ВГИ,49,09:30,11:30,DHC-6,7000,2
+29.01.2026,DYR,KPW,25,10:00,12:20,ANTONOV AN-24,17000,9
+20.01.2026,DYR,PVS,113,10:00,12:00,ANTONOV AN-24,15000,2
+10.02.2026,DYR,KVM,7,09:30,11:35,MI-8,7000,7
+`;
 
-/* ===== COORDS ===== */
+/* ================= DATA ================= */
+const lines = RAW_CSV.trim().split("\n");
+const headers = lines.shift().split(",");
+
+let flights = lines.map(l => {
+  const v = l.split(",");
+  let o = {};
+  headers.forEach((h,i)=>o[h]=v[i]);
+  o.price = Number(o.price);
+  return o;
+});
+
+/* ================= FILTERS ================= */
+const fromSel = document.getElementById("from");
+const toSel = document.getElementById("to");
+const acSel = document.getElementById("aircraft");
+
+function fillSelect(sel, values){
+  sel.innerHTML = `<option value="">Все</option>`;
+  [...new Set(values)].forEach(v=>{
+    sel.add(new Option(v,v));
+  });
+}
+
+fillSelect(fromSel, flights.map(f=>f.origin));
+fillSelect(toSel, flights.map(f=>f.destination));
+fillSelect(acSel, flights.map(f=>f.aircraft));
+
+fromSel.onchange = render;
+toSel.onchange = render;
+acSel.onchange = render;
+dateFrom.onchange = render;
+dateTo.onchange = render;
+
+/* ================= SORT ================= */
+let sortKey = null;
+let asc = true;
+
+function sortBy(k){
+  asc = sortKey === k ? !asc : true;
+  sortKey = k;
+  render();
+}
+
+/* ================= MAP ================= */
+const map = L.map('map').setView([64, 175], 3);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+let geoLayer = null;
+
 const coords = {
   DYR:[64.73,177.52],
   PVS:[64.38,-173.23],
   KPW:[67.83,166.13],
   ВГИ:[67.55,175.85],
   БНГ:[66.32,174.12],
-  KVM:[67.05,179.25],
-  ЭТТ:[65.74,176.69]
+  KVM:[67.05,179.25]
 };
 
-/* ===== MAP ===== */
-const map = L.map('map').setView([64,180],3);
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
-let geoLayer = L.geodesic([], {steps:40}).addTo(map);
-
-/* ===== CSV LOAD ===== */
-fetch('chukotavia_api_results.csv')
-  .then(r => r.text())
-  .then(text => {
-    const lines = text.trim().split('\n');
-    const headers = lines.shift().split(',');
-
-    flights = lines.map(l => {
-      const v = l.split(',');
-      let o = {};
-      headers.forEach((h,i)=>o[h]=v[i]);
-      return o;
-    });
-
-    initFilters();
-    render();
-  });
-
-/* ===== FILTERS ===== */
-function initFilters(){
-  fillSelect('from', flights.map(f=>f.origin));
-  fillSelect('to', flights.map(f=>f.destination));
-  fillSelect('air', flights.map(f=>f.aircraft));
-
-  document.getElementById('from').onchange = render;
-  document.getElementById('to').onchange = render;
-  document.getElementById('air').onchange = render;
+function drawMap(data){
+  if(geoLayer) map.removeLayer(geoLayer);
+  geoLayer = L.geodesic(
+    data.map(f=>[coords[f.origin], coords[f.destination]]),
+    { color:'red', steps:40 }
+  ).addTo(map);
 }
 
-function fillSelect(id, arr){
-  const sel = document.getElementById(id);
-  sel.innerHTML = `<option value="">Все</option>`;
-  [...new Set(arr)].forEach(v=>sel.add(new Option(v,v)));
-}
-
-/* ===== RENDER ===== */
+/* ================= RENDER ================= */
 function render(){
-  const f = document.getElementById('from').value;
-  const t = document.getElementById('to').value;
-  const a = document.getElementById('air').value;
-
-  const data = flights.filter(x =>
-    (!f || x.origin===f) &&
-    (!t || x.destination===t) &&
-    (!a || x.aircraft===a)
+  let data = flights.filter(f =>
+    (!fromSel.value || f.origin===fromSel.value) &&
+    (!toSel.value || f.destination===toSel.value) &&
+    (!acSel.value || f.aircraft===acSel.value)
   );
 
-  document.getElementById('rows').innerHTML='';
-  geoLayer.setLatLngs([]);
+  if(sortKey){
+    data.sort((a,b)=>{
+      if(sortKey==="price") return asc ? a.price-b.price : b.price-a.price;
+      return asc ? a[sortKey].localeCompare(b[sortKey]) : b[sortKey].localeCompare(a[sortKey]);
+    });
+  }
 
-  data.forEach(x=>{
-    document.getElementById('rows').innerHTML += `
-      <tr>
-        <td>${x.date}</td>
-        <td>${x.origin}</td>
-        <td>${x.destination}</td>
-        <td>${x.flight_number}</td>
-        <td>${x.departure}</td>
-        <td>${x.arrival}</td>
-        <td>${x.aircraft}</td>
-        <td>
-          <a href="https://booking.chukotavia.com/websky/" target="_blank">
-            <button class="buy">от ${Number(x.price).toLocaleString()} ₽</button>
-          </a>
-        </td>
-      </tr>
-    `;
+  const tbody = document.getElementById("rows");
+  tbody.innerHTML="";
 
-    if(coords[x.origin] && coords[x.destination]){
-      geoLayer.addLatLngs([[coords[x.origin],coords[x.destination]]]);
-    }
+  data.forEach(f=>{
+    const link = `https://booking.chukotavia.com/websky/?from=${f.origin}&to=${f.destination}&date=${f.date}`;
+    tbody.innerHTML += `
+    <tr>
+      <td>${f.date}</td>
+      <td>${f.origin}</td>
+      <td>${f.destination}</td>
+      <td>${f.flight_number}</td>
+      <td>${f.departure}</td>
+      <td>${f.arrival}</td>
+      <td>${f.aircraft}</td>
+      <td><a href="${link}" target="_blank"><button class="buy">от ${f.price.toLocaleString()} ₽</button></a></td>
+    </tr>`;
   });
+
+  drawMap(data);
 }
 
 function resetAll(){
-  document.getElementById('from').value='';
-  document.getElementById('to').value='';
-  document.getElementById('air').value='';
+  fromSel.value="";
+  toSel.value="";
+  acSel.value="";
+  dateFrom.value="";
+  dateTo.value="";
+  sortKey=null;
   render();
 }
-</script>
 
+render();
+</script>
 </body>
 </html>
