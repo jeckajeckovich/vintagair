@@ -2,26 +2,27 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<title>VintageAir — ЧукотАВИА</title>
+<title>VintageAir — рейсы ЧукотАВИА</title>
 
-<link
-  rel="stylesheet"
-  href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-/>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.geodesic/Leaflet.Geodesic.min.js"></script>
 
 <style>
-body { font-family: Arial, sans-serif; padding:20px; background:#f4f6f8 }
-h2 { margin:10px 0 }
+body {
+  font-family: Arial, sans-serif;
+  padding:20px;
+  background:#f4f6f8;
+}
 
 header {
   display:flex;
   align-items:center;
   gap:15px;
+  margin-bottom:15px;
 }
 
-header img {
-  height:50px;
-}
+header img { height:48px; }
 
 .filters {
   background:#fff;
@@ -30,7 +31,7 @@ header img {
   display:flex;
   gap:10px;
   flex-wrap:wrap;
-  box-shadow:0 2px 6px rgba(0,0,0,.1)
+  box-shadow:0 2px 6px rgba(0,0,0,.1);
 }
 
 select,input,button {
@@ -38,9 +39,7 @@ select,input,button {
   font-size:14px;
 }
 
-button {
-  cursor:pointer;
-}
+button { cursor:pointer; }
 
 table {
   width:100%;
@@ -64,7 +63,7 @@ th {
   background:#1e88e5;
   color:#fff;
   border:none;
-  padding:5px 8px;
+  padding:6px 10px;
   border-radius:4px;
 }
 
@@ -75,11 +74,10 @@ th {
 }
 
 #map {
-  height:400px;
+  height:420px;
   margin-top:30px;
   border-radius:8px;
 }
-
 </style>
 </head>
 
@@ -94,11 +92,9 @@ th {
   <select id="from"><option value="">Откуда</option></select>
   <select id="to"><option value="">Куда</option></select>
   <select id="aircraft"><option value="">Тип ВС</option></select>
-
   <input type="date" id="dateFrom">
   <input type="date" id="dateTo">
-
-  <button onclick="resetFilters()">Сбросить</button>
+  <button onclick="resetFilters()">Сброс</button>
 </div>
 
 <div id="empty">Выберите параметры поиска</div>
@@ -123,17 +119,15 @@ th {
 
 <div id="map"></div>
 
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-
 <script>
 let flights=[];
 let sortKey=null;
 let sortDir=1;
 
-/* ===== АЭРОПОРТЫ (координаты) ===== */
+/* === КООРДИНАТЫ АЭРОПОРТОВ === */
 const AIRPORTS = {
   DYR:[64.734,177.741],
-  PVS:[64.378,-173.242],
+  PVS:[64.378, -173.242],   // Провидения — ИСПРАВЛЕНО
   KPW:[67.845,166.139],
   PWE:[69.783,170.597],
   KVM:[62.591,174.520],
@@ -142,16 +136,24 @@ const AIRPORTS = {
   "ЭГТ":[66.320,179.122]
 };
 
-/* ===== ЗАГРУЗКА CSV ===== */
+/* === ЦВЕТА ДУГ === */
+function aircraftColor(name){
+  if(name.includes("AN-24")) return "#d32f2f";
+  if(name.includes("DHC-6")) return "#1976d2";
+  if(name.includes("MI")) return "#388e3c";
+  return "#555";
+}
+
+/* === ЗАГРУЗКА CSV === */
 fetch("chukotavia_api_results.csv")
 .then(r=>r.text())
 .then(csv=>{
   const lines=csv.trim().split("\n");
-  const h=lines.shift().split(",");
+  const headers=lines.shift().split(",");
   flights=lines.map(l=>{
     const v=l.split(",");
     let o={};
-    h.forEach((k,i)=>o[k]=v[i]);
+    headers.forEach((h,i)=>o[h]=v[i]);
     return o;
   });
   initFilters();
@@ -159,14 +161,12 @@ fetch("chukotavia_api_results.csv")
   render();
 });
 
-/* ===== ФИЛЬТРЫ ===== */
+/* === ФИЛЬТРЫ === */
 function initFilters(){
   fill("from", flights.map(f=>f.origin));
   fill("to", flights.map(f=>f.destination));
   fill("aircraft", flights.map(f=>f.aircraft));
-
-  document.querySelectorAll("select,input")
-    .forEach(e=>e.onchange=render);
+  document.querySelectorAll("select,input").forEach(e=>e.onchange=render);
 }
 
 function fill(id,arr){
@@ -183,13 +183,13 @@ function resetFilters(){
   render();
 }
 
-/* ===== ДАТЫ ===== */
+/* === ДАТЫ === */
 const norm=d=>{
   const p=d.split(".");
   return `${p[2]}-${p[1]}-${p[0]}`;
 };
 
-/* ===== РЕНДЕР ===== */
+/* === РЕНДЕР === */
 function render(){
   let res=flights.filter(f=>
     (!from.value||f.origin===from.value)&&
@@ -211,6 +211,7 @@ function render(){
   if(!res.length){
     table.style.display="none";
     empty.style.display="block";
+    drawRoutes([]);
     return;
   }
 
@@ -231,7 +232,7 @@ function render(){
       <td>${f.available}</td>
       <td>
         <a href="https://booking.chukotavia.com/websky/" target="_blank">
-          <button class="buy">Купить</button>
+          <button class="buy">от ${Number(f.price).toLocaleString()} ₽</button>
         </a>
       </td>
     </tr>`;
@@ -240,7 +241,7 @@ function render(){
   drawRoutes(res);
 }
 
-/* ===== СОРТИРОВКА ===== */
+/* === СОРТИРОВКА === */
 document.querySelectorAll("th[data-sort]").forEach(th=>{
   th.onclick=()=>{
     const k=th.dataset.sort;
@@ -250,31 +251,28 @@ document.querySelectorAll("th[data-sort]").forEach(th=>{
   };
 });
 
-/* ===== КАРТА ===== */
-let map, layer;
+/* === КАРТА === */
+let map, geo;
 
 function initMap(){
   map=L.map("map").setView([65,170],4);
-  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{
-    attribution:"© OpenStreetMap"
-  }).addTo(map);
-  layer=L.layerGroup().addTo(map);
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png").addTo(map);
+  geo=L.geodesic([], {steps:40}).addTo(map);
 }
 
 function drawRoutes(list){
-  layer.clearLayers();
-
+  geo.setLatLngs([]);
   list.forEach(f=>{
-    if(AIRPORTS[f.origin]&&AIRPORTS[f.destination]){
-      L.polyline(
-        [AIRPORTS[f.origin],AIRPORTS[f.destination]],
-        {color:"red"}
-      ).addTo(layer);
+    if(AIRPORTS[f.origin] && AIRPORTS[f.destination]){
+      geo.addLatLngs([{
+        latlngs:[AIRPORTS[f.origin], AIRPORTS[f.destination]],
+        options:{ color: aircraftColor(f.aircraft), weight:2 }
+      }]);
     }
   });
 }
 
-/* ===== DOM ===== */
+/* === DOM === */
 const from=document.getElementById("from");
 const to=document.getElementById("to");
 const aircraft=document.getElementById("aircraft");
