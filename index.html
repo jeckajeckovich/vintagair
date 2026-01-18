@@ -1,11 +1,68 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>ЧукотАВИА — доступные рейсы</title>
+
+<style>
+body { font-family: Arial, sans-serif; padding: 20px; }
+table { border-collapse: collapse; width: 100%; margin-top: 15px; }
+th, td { border: 1px solid #ccc; padding: 6px; text-align: center; }
+th { background: #eee; }
+select, input, button { padding: 6px; margin-right: 6px; }
+</style>
+</head>
+
+<body>
+
+<h2>✈️ ЧукотАВИА — доступные рейсы</h2>
+
+<select id="from">
+  <option value="">Откуда</option>
+</select>
+
+<select id="to">
+  <option value="">Куда</option>
+</select>
+
+<select id="aircraft">
+  <option value="">Тип ВС</option>
+</select>
+
+<input type="date" id="date">
+<button id="show">Показать</button>
+
+<table>
+<thead>
+<tr>
+<th>Дата</th>
+<th>Откуда</th>
+<th>Куда</th>
+<th>Рейс</th>
+<th>Вылет</th>
+<th>Прилёт</th>
+<th>Самолёт</th>
+<th>Цена</th>
+<th>Мест</th>
+</tr>
+</thead>
+<tbody id="rows"></tbody>
+</table>
+
 <script>
+document.addEventListener("DOMContentLoaded", () => {
+
 const RAW_CSV = `
 date,origin,destination,flight_number,departure,arrival,aircraft,price,available
 27.01.2026,DYR,БНГ,15,10:00,11:20,ANTONOV AN-24,19000.00,9
 11.02.2026,DYR,БНГ,15,10:00,11:20,ANTONOV AN-24,19000.00,9
-22.01.2026,DYR,ВГИ,49,09:30,11:30,DHC-6,7000.00,2
-29.01.2026,DYR,ВГИ,3,10:00,12:00,DHC-6,7000.00,3
-10.02.2026,DYR,KVM,7,09:30,11:35,MI-8,7000.00,7
+22.01.2026,DYR,ВГИ,49,09:30,11:30,DE HAVILLAND DHC-6 TWIN OTTER,7000.00,2
+29.01.2026,DYR,ВГИ,3,10:00,12:00,DE HAVILLAND DHC-6 TWIN OTTER,7000.00,3
+12.02.2026,DYR,ВГИ,3,10:00,12:00,DE HAVILLAND DHC-6 TWIN OTTER,7000.00,8
+09.02.2026,DYR,KPW,25,10:00,12:20,ANTONOV AN-24,17000.00,9
+03.02.2026,DYR,KVM,7,10:00,12:00,DE HAVILLAND DHC-6 TWIN OTTER,7000.00,2
+10.02.2026,DYR,KVM,7,09:30,11:35,MI8/MI17/MI171/MI172,7000.00,7
+20.01.2026,DYR,PVS,113,10:00,12:00,ANTONOV AN-24,15000.00,2
 `;
 
 const lines = RAW_CSV.trim().split("\n");
@@ -20,61 +77,40 @@ const flights = lines.map(l => {
 
 const fromSel = document.getElementById("from");
 const toSel = document.getElementById("to");
-const typeSel = document.getElementById("aircraft");
-const dateInp = document.getElementById("date");
+const aircraftSel = document.getElementById("aircraft");
+const rows = document.getElementById("rows");
 
-function unique(arr){ return [...new Set(arr)]; }
+function uniq(arr){ return [...new Set(arr)].sort(); }
 
-// === ШАГ 1: ОТКУДА ===
-unique(flights.map(f=>f.origin)).forEach(v=>{
+uniq(flights.map(f=>f.origin)).forEach(v=>{
   fromSel.add(new Option(v,v));
 });
-
-// === ШАГ 2: КУДА ===
-fromSel.onchange = () => {
-  toSel.innerHTML = "<option value=''>Куда</option>";
-  typeSel.innerHTML = "<option value=''>Тип ВС</option>";
-
-  unique(
-    flights
-      .filter(f=>f.origin===fromSel.value)
-      .map(f=>f.destination)
-  ).forEach(v=>{
-    toSel.add(new Option(v,v));
-  });
-};
-
-// === ШАГ 3: ТИП ВС ===
-toSel.onchange = () => {
-  typeSel.innerHTML = "<option value=''>Тип ВС</option>";
-
-  unique(
-    flights.filter(f=>
-      f.origin===fromSel.value &&
-      f.destination===toSel.value
-    ).map(f=>f.aircraft)
-  ).forEach(v=>{
-    typeSel.add(new Option(v,v));
-  });
-};
+uniq(flights.map(f=>f.destination)).forEach(v=>{
+  toSel.add(new Option(v,v));
+});
+uniq(flights.map(f=>f.aircraft)).forEach(v=>{
+  aircraftSel.add(new Option(v,v));
+});
 
 function norm(d){
   const p=d.split(".");
   return `${p[2]}-${p[1]}-${p[0]}`;
 }
 
-// === ПОКАЗ ===
-function render(){
-  const tbody=document.getElementById("rows");
-  tbody.innerHTML="";
+document.getElementById("show").onclick = () => {
+  rows.innerHTML = "";
+  const from = fromSel.value;
+  const to = toSel.value;
+  const ac = aircraftSel.value;
+  const date = document.getElementById("date").value;
 
-  flights.filter(f=>
-    (!fromSel.value || f.origin===fromSel.value) &&
-    (!toSel.value || f.destination===toSel.value) &&
-    (!typeSel.value || f.aircraft===typeSel.value) &&
-    (!dateInp.value || norm(f.date)===dateInp.value)
-  ).forEach(f=>{
-    tbody.innerHTML+=`
+  flights.filter(f =>
+    (!from || f.origin === from) &&
+    (!to || f.destination === to) &&
+    (!ac || f.aircraft === ac) &&
+    (!date || norm(f.date) === date)
+  ).forEach(f => {
+    rows.innerHTML += `
     <tr>
       <td>${f.date}</td>
       <td>${f.origin}</td>
@@ -83,9 +119,14 @@ function render(){
       <td>${f.departure}</td>
       <td>${f.arrival}</td>
       <td>${f.aircraft}</td>
-      <td>${f.price}</td>
+      <td>${f.price} ₽</td>
       <td>${f.available}</td>
     </tr>`;
   });
-}
+};
+
+});
 </script>
+
+</body>
+</html>
