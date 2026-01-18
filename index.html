@@ -77,6 +77,22 @@ th {
   margin-top:30px;
   border-radius:8px;
 }
+
+/* легенда */
+.legend {
+  background:#fff;
+  padding:10px;
+  border-radius:6px;
+  font-size:13px;
+  line-height:1.6;
+}
+.legend span {
+  display:inline-block;
+  width:14px;
+  height:3px;
+  margin-right:6px;
+  vertical-align:middle;
+}
 </style>
 </head>
 
@@ -94,6 +110,7 @@ th {
   <input type="date" id="dateFrom">
   <input type="date" id="dateTo">
   <button onclick="resetFilters()">Сброс</button>
+  <button onclick="showAll()">Показать всю сеть</button>
 </div>
 
 <div id="empty">Выберите параметры поиска</div>
@@ -109,7 +126,6 @@ th {
   <th>Прилёт</th>
   <th>Самолёт</th>
   <th data-sort="price">Цена</th>
-  <th data-sort="available">Мест</th>
   <th></th>
 </tr>
 </thead>
@@ -119,13 +135,13 @@ th {
 <div id="map"></div>
 
 <script>
-/* ================== ДАННЫЕ ================== */
+/* ================= ДАННЫЕ ================= */
 
 let flights=[];
+let filtered=[];
 let sortKey="date";
 let sortDir=1;
 
-/* Координаты аэропортов */
 const AIRPORTS = {
   DYR:[64.734,177.741],
   PVS:[64.378,-173.242],
@@ -137,7 +153,6 @@ const AIRPORTS = {
   "ЭГТ":[66.320,179.122]
 };
 
-/* Цвет по типу ВС */
 function aircraftColor(a){
   a=a.toUpperCase();
   if(a.includes("AN")) return "#d32f2f";
@@ -146,25 +161,26 @@ function aircraftColor(a){
   return "#555";
 }
 
-/* ================== ЗАГРУЗКА CSV ================== */
+/* ================= CSV ================= */
 
 fetch("chukotavia_api_results.csv")
 .then(r=>r.text())
 .then(csv=>{
   const lines=csv.trim().split("\n");
-  const headers=lines.shift().split(",");
+  const h=lines.shift().split(",");
   flights=lines.map(l=>{
     const v=l.split(",");
     let o={};
-    headers.forEach((h,i)=>o[h]=v[i]);
+    h.forEach((k,i)=>o[k]=v[i]);
     return o;
   });
   initFilters();
   initMap();
+  applyURL();
   render();
 });
 
-/* ================== ФИЛЬТРЫ ================== */
+/* ================= ФИЛЬТРЫ ================= */
 
 function initFilters(){
   fill("from", flights.map(f=>f.origin));
@@ -187,17 +203,41 @@ function resetFilters(){
   render();
 }
 
-/* ================== ДАТЫ ================== */
+function showAll(){
+  resetFilters();
+  drawRoutes(flights);
+}
+
+/* ================= URL ================= */
+
+function updateURL(){
+  const p=new URLSearchParams();
+  if(from.value) p.set("from",from.value);
+  if(to.value) p.set("to",to.value);
+  if(aircraft.value) p.set("aircraft",aircraft.value);
+  if(dateFrom.value) p.set("df",dateFrom.value);
+  if(dateTo.value) p.set("dt",dateTo.value);
+  history.replaceState(null,"","?"+p.toString());
+}
+
+function applyURL(){
+  const p=new URLSearchParams(location.search);
+  from.value=p.get("from")||"";
+  to.value=p.get("to")||"";
+  aircraft.value=p.get("aircraft")||"";
+  dateFrom.value=p.get("df")||"";
+  dateTo.value=p.get("dt")||"";
+}
+
+/* ================= РЕНДЕР ================= */
 
 function norm(d){
   const p=d.split(".");
   return `${p[2]}-${p[1]}-${p[0]}`;
 }
 
-/* ================== РЕНДЕР ================== */
-
 function render(){
-  let res=flights.filter(f=>
+  filtered=flights.filter(f=>
     (!from.value||f.origin===from.value)&&
     (!to.value||f.destination===to.value)&&
     (!aircraft.value||f.aircraft===aircraft.value)&&
@@ -205,14 +245,14 @@ function render(){
     (!dateTo.value||norm(f.date)<=dateTo.value)
   );
 
-  res.sort((a,b)=>{
+  filtered.sort((a,b)=>{
     let x=a[sortKey],y=b[sortKey];
     if(sortKey!=="date"){x=+x;y=+y;}
     return (x>y?1:-1)*sortDir;
   });
 
   rows.innerHTML="";
-  if(!res.length){
+  if(!filtered.length){
     table.style.display="none";
     empty.style.display="block";
     drawRoutes([]);
@@ -222,9 +262,9 @@ function render(){
   table.style.display="table";
   empty.style.display="none";
 
-  res.forEach(f=>{
+  filtered.forEach((f,i)=>{
     rows.innerHTML+=`
-    <tr>
+    <tr onmouseenter="highlight(${i})" onmouseleave="highlight(null)">
       <td>${f.date}</td>
       <td>${f.origin}</td>
       <td>${f.destination}</td>
@@ -233,7 +273,6 @@ function render(){
       <td>${f.arrival}</td>
       <td>${f.aircraft}</td>
       <td>${Number(f.price).toLocaleString()} ₽</td>
-      <td>${f.available}</td>
       <td>
         <a href="https://booking.chukotavia.com/websky/" target="_blank">
           <button class="buy">от ${Number(f.price).toLocaleString()} ₽</button>
@@ -242,10 +281,11 @@ function render(){
     </tr>`;
   });
 
-  drawRoutes(res);
+  updateURL();
+  drawRoutes(filtered);
 }
 
-/* ================== СОРТИРОВКА ================== */
+/* ================= СОРТИРОВКА ================= */
 
 document.querySelectorAll("th[data-sort]").forEach(th=>{
   th.onclick=()=>{
@@ -256,44 +296,64 @@ document.querySelectorAll("th[data-sort]").forEach(th=>{
   };
 });
 
-/* ================== КАРТА ================== */
+/* ================= КАРТА ================= */
 
-let map,routeLayer,markerLayer;
-
-function fixLng([lat,lng]){
-  if(lng>180) lng-=360;
-  if(lng<-180) lng+=360;
-  return [lat,lng];
-}
+let map,routeLayer,markerLayer,polylines=[];
 
 function initMap(){
-  map=L.map("map",{worldCopyJump:false})
-    .setView([65,170],4);
+  map=L.map("map",{worldCopyJump:false}).setView([65,170],4);
 
   L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png")
     .addTo(map);
 
   routeLayer=L.layerGroup().addTo(map);
   markerLayer=L.layerGroup().addTo(map);
+
+  // легенда
+  const legend=L.control({position:"bottomright"});
+  legend.onAdd=()=>{
+    const d=L.DomUtil.create("div","legend");
+    d.innerHTML=`
+      <b>Тип ВС</b><br>
+      <span style="background:#d32f2f"></span> AN-24<br>
+      <span style="background:#1976d2"></span> DHC-6<br>
+      <span style="background:#388e3c"></span> Ми<br>
+    `;
+    return d;
+  };
+  legend.addTo(map);
+}
+
+function buildPath(a,b){
+  const [lat1,lng1]=a;
+  const [lat2,lng2]=b;
+  if(Math.abs(lng1-lng2)>180){
+    const midLng=lng1>0?180:-180;
+    const t=(midLng-lng1)/(lng2-lng1);
+    const midLat=lat1+(lat2-lat1)*t;
+    return [[lat1,lng1],[midLat,midLng],[lat2,lng2]];
+  }
+  return [[lat1,lng1],[lat2,lng2]];
 }
 
 function drawRoutes(list){
   routeLayer.clearLayers();
   markerLayer.clearLayers();
-
+  polylines=[];
   let bounds=[];
 
   list.forEach(f=>{
     if(!AIRPORTS[f.origin]||!AIRPORTS[f.destination]) return;
+    const a=AIRPORTS[f.origin];
+    const b=AIRPORTS[f.destination];
 
-    const a=fixLng(AIRPORTS[f.origin]);
-    const b=fixLng(AIRPORTS[f.destination]);
-
-    L.polyline([a,b],{
-      color: aircraftColor(f.aircraft),
+    const line=L.polyline(buildPath(a,b),{
+      color:aircraftColor(f.aircraft),
       weight:2,
       opacity:0.85
     }).addTo(routeLayer);
+
+    polylines.push(line);
 
     [a,b].forEach(p=>{
       L.circleMarker(p,{
@@ -302,17 +362,20 @@ function drawRoutes(list){
         fillColor:"#fff",
         fillOpacity:1
       }).addTo(markerLayer);
+      bounds.push(p);
     });
-
-    bounds.push(a,b);
   });
 
-  if(bounds.length){
-    map.fitBounds(bounds,{padding:[40,40]});
-  }
+  if(bounds.length) map.fitBounds(bounds,{padding:[40,40]});
 }
 
-/* ================== DOM ================== */
+function highlight(i){
+  polylines.forEach((l,idx)=>{
+    l.setStyle({weight: idx===i?5:2, opacity: idx===i?1:0.6});
+  });
+}
+
+/* ================= DOM ================= */
 
 const from=document.getElementById("from");
 const to=document.getElementById("to");
