@@ -8,63 +8,89 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
 <style>
-body { font-family: Arial, sans-serif; background:#f4f6f8; padding:20px }
-header { display:flex; align-items:center; gap:12px; margin-bottom:15px }
-header img { height:42px }
+body {
+  font-family: Arial, sans-serif;
+  padding:20px;
+  background:#f4f6f8;
+}
+
+header {
+  display:flex;
+  align-items:center;
+  gap:15px;
+  margin-bottom:15px;
+}
+
+header img { height:48px; }
 
 .filters {
   background:#fff;
-  padding:14px;
+  padding:15px;
   border-radius:8px;
   display:flex;
   gap:10px;
   flex-wrap:wrap;
-  box-shadow:0 2px 6px rgba(0,0,0,.1)
+  box-shadow:0 2px 6px rgba(0,0,0,.1);
 }
 
-select,input,button { padding:6px; font-size:14px }
-button { cursor:pointer }
+select,input,button {
+  padding:7px;
+  font-size:14px;
+}
+
+button { cursor:pointer; }
 
 table {
   width:100%;
   border-collapse:collapse;
   background:#fff;
-  margin-top:18px;
+  margin-top:20px;
 }
+
 th,td {
   border:1px solid #ccc;
   padding:6px;
   text-align:center;
 }
-th { background:#eee; cursor:pointer }
+
+th {
+  background:#eee;
+  cursor:pointer;
+}
 
 .buy {
   background:#1e88e5;
   color:#fff;
   border:none;
-  padding:5px 10px;
+  padding:6px 10px;
   border-radius:4px;
 }
 
-#map { height:420px; margin-top:25px; border-radius:8px }
+#empty {
+  margin-top:25px;
+  color:#666;
+  text-align:center;
+}
+
+#map {
+  height:420px;
+  margin-top:30px;
+  border-radius:8px;
+}
 
 .legend {
-  margin-top:10px;
   background:#fff;
-  padding:10px;
+  padding:8px 12px;
   border-radius:6px;
-  display:inline-block;
+  box-shadow:0 2px 6px rgba(0,0,0,.15);
+  line-height:1.6;
 }
 .legend span {
-  display:inline-flex;
-  align-items:center;
-  gap:6px;
-  margin-right:12px;
-}
-.legend i {
-  width:14px;
-  height:4px;
   display:inline-block;
+  width:14px;
+  height:3px;
+  margin-right:6px;
+  vertical-align:middle;
 }
 </style>
 </head>
@@ -77,13 +103,15 @@ th { background:#eee; cursor:pointer }
 </header>
 
 <div class="filters">
-  <select id="from"></select>
-  <select id="to"></select>
-  <select id="aircraft"></select>
+  <select id="from"><option value="">Откуда</option></select>
+  <select id="to"><option value="">Куда</option></select>
+  <select id="aircraft"><option value="">Тип ВС</option></select>
   <input type="date" id="dateFrom">
   <input type="date" id="dateTo">
   <button onclick="resetFilters()">Сброс</button>
 </div>
+
+<div id="empty">Выберите параметры поиска</div>
 
 <table id="table" style="display:none">
 <thead>
@@ -95,7 +123,6 @@ th { background:#eee; cursor:pointer }
   <th>Вылет</th>
   <th>Прилёт</th>
   <th>Самолёт</th>
-  <th data-sort="price">Цена</th>
   <th></th>
 </tr>
 </thead>
@@ -104,17 +131,14 @@ th { background:#eee; cursor:pointer }
 
 <div id="map"></div>
 
-<div class="legend" id="legend"></div>
-
 <script>
-/* ===== КОНСТАНТЫ ===== */
+/* ================= ДАННЫЕ ================= */
 
-const aircraftTypes = {
-  "AN-24": { color:"#d32f2f", label:"Ан-24" },
-  "DHC-6": { color:"#1976d2", label:"DHC-6 Twin Otter" },
-  "MI":    { color:"#388e3c", label:"Ми-8 / Ми-17" }
-};
+let flights = [];
+let sortKey = "date";
+let sortDir = 1;
 
+/* ===== АЭРОПОРТЫ ===== */
 const AIRPORTS = {
   DYR:[64.734,177.741],
   PVS:[64.378,-173.242],
@@ -124,107 +148,112 @@ const AIRPORTS = {
   "БНГ":[63.049,179.316],
   "ВГИ":[64.405,176.002],
   "ЭГТ":[66.320,179.122],
-  "ЗЛА":[64.600,176.990]
+  "ЗЛА":[64.817,179.967]
 };
 
-/* ===== СОСТОЯНИЕ ===== */
+/* ===== ТИПЫ ВС ===== */
+function normalizeAircraft(a){
+  a=a.toUpperCase();
+  if(a.includes("AN")) return "AN-24";
+  if(a.includes("DHC")) return "DHC-6";
+  if(a.includes("MI")) return "MI";
+  return a;
+}
 
-let flights=[];
-let sortKey="date", sortDir=1;
+function aircraftColor(type){
+  if(type==="AN-24") return "#d32f2f";
+  if(type==="DHC-6") return "#1976d2";
+  if(type==="MI") return "#388e3c";
+  return "#555";
+}
 
-/* ===== УТИЛИТЫ ===== */
-
-const normDate = d => {
-  const [dd,mm,yy]=d.split(".");
-  return `${yy}-${mm}-${dd}`;
-};
-
-const aircraftKey = name => {
-  name=name.toUpperCase();
-  if(name.includes("AN")) return "AN-24";
-  if(name.includes("DHC")) return "DHC-6";
-  if(name.includes("MI")) return "MI";
-  return null;
-};
-
-/* ===== ЗАГРУЗКА CSV ===== */
+/* ================= ЗАГРУЗКА CSV ================= */
 
 fetch("chukotavia_api_results.csv")
 .then(r=>r.text())
 .then(csv=>{
-  const lines=csv.trim().split("\n");
-  const h=lines.shift().split(",");
-  flights=lines.map(l=>{
+  const lines = csv.trim().split("\n");
+  const h = lines.shift().split(",");
+  flights = lines.map(l=>{
     const v=l.split(",");
     let o={};
     h.forEach((k,i)=>o[k]=v[i]);
-    o.airKey=aircraftKey(o.aircraft);
+    o.aircraftType = normalizeAircraft(o.aircraft);
     return o;
   });
   initMap();
   updateFilters();
   render();
-  buildLegend();
 });
 
-/* ===== ФИЛЬТРЫ ===== */
+/* ================= ФИЛЬТРЫ ================= */
 
-function filteredFlights(){
+function updateFilters(){
+  fill("from", filtered().map(f=>f.origin));
+  fill("to", filtered().map(f=>f.destination));
+  fill("aircraft", filtered().map(f=>f.aircraftType));
+}
+
+function filtered(){
   return flights.filter(f=>
     (!from.value || f.origin===from.value) &&
     (!to.value || f.destination===to.value) &&
-    (!aircraft.value || f.airKey===aircraft.value) &&
-    (!dateFrom.value || normDate(f.date)>=dateFrom.value) &&
-    (!dateTo.value || normDate(f.date)<=dateTo.value)
+    (!aircraft.value || f.aircraftType===aircraft.value) &&
+    (!dateFrom.value || norm(f.date)>=dateFrom.value) &&
+    (!dateTo.value || norm(f.date)<=dateTo.value)
   );
 }
 
-function updateFilters(){
-  const base = filteredFlights();
-
-  fillSelect(from, base.map(f=>f.origin), "Откуда");
-  fillSelect(to, base.map(f=>f.destination), "Куда");
-  fillSelect(aircraft, base.map(f=>f.airKey), "Тип ВС", true);
+function fill(id,arr){
+  const s=document.getElementById(id);
+  const cur=s.value;
+  s.innerHTML='<option value="">'+s.options[0].text+'</option>';
+  [...new Set(arr)].sort().forEach(v=>s.add(new Option(v,v)));
+  s.value=cur;
 }
 
-function fillSelect(sel, values, label, isAircraft=false){
-  const current=sel.value;
-  sel.innerHTML=`<option value="">${label}</option>`;
-  [...new Set(values)].sort().forEach(v=>{
-    if(!v) return;
-    const text=isAircraft?aircraftTypes[v].label:v;
-    sel.add(new Option(text,v));
-  });
-  sel.value=current;
-}
+document.querySelectorAll("select,input").forEach(e=>{
+  e.onchange=()=>{ updateFilters(); render(); };
+});
 
 function resetFilters(){
-  from.value=to.value=aircraft.value="";
-  dateFrom.value=dateTo.value="";
+  from.value="";
+  to.value="";
+  aircraft.value="";
+  dateFrom.value="";
+  dateTo.value="";
   updateFilters();
   render();
 }
 
-document.querySelectorAll("select,input").forEach(e=>{
-  e.onchange=()=>{
-    updateFilters();
-    render();
-  };
-});
+/* ================= ДАТЫ ================= */
 
-/* ===== РЕНДЕР ТАБЛИЦЫ ===== */
+function norm(d){
+  const p=d.split(".");
+  return `${p[2]}-${p[1]}-${p[0]}`;
+}
+
+/* ================= РЕНДЕР ================= */
 
 function render(){
-  let res=filteredFlights();
+  let res = filtered();
 
   res.sort((a,b)=>{
     let x=a[sortKey],y=b[sortKey];
-    if(sortKey!=="date"){x=+x;y=+y}
+    if(sortKey!=="date"){x=+x;y=+y;}
     return (x>y?1:-1)*sortDir;
   });
 
   rows.innerHTML="";
-  table.style.display=res.length?"table":"none";
+  if(!res.length){
+    table.style.display="none";
+    empty.style.display="block";
+    drawRoutes([]);
+    return;
+  }
+
+  table.style.display="table";
+  empty.style.display="none";
 
   res.forEach(f=>{
     rows.innerHTML+=`
@@ -236,7 +265,6 @@ function render(){
       <td>${f.departure}</td>
       <td>${f.arrival}</td>
       <td>${f.aircraft}</td>
-      <td>${Number(f.price).toLocaleString()} ₽</td>
       <td>
         <a href="https://booking.chukotavia.com/websky/" target="_blank">
           <button class="buy">от ${Number(f.price).toLocaleString()} ₽</button>
@@ -245,10 +273,10 @@ function render(){
     </tr>`;
   });
 
-  drawMap(res);
+  drawRoutes(res);
 }
 
-/* ===== СОРТИРОВКА ===== */
+/* ================= СОРТИРОВКА ================= */
 
 document.querySelectorAll("th[data-sort]").forEach(th=>{
   th.onclick=()=>{
@@ -259,40 +287,51 @@ document.querySelectorAll("th[data-sort]").forEach(th=>{
   };
 });
 
-/* ===== КАРТА ===== */
+/* ================= КАРТА ================= */
 
-let map, routeLayer;
-
-function fixLng([lat,lng]){
-  if(lng>180) lng-=360;
-  if(lng<-180) lng+=360;
-  return [lat,lng];
-}
+let map,routeLayer;
 
 function initMap(){
-  map=L.map("map",{worldCopyJump:false})
-    .setView([65,170],4);
-
-  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{noWrap:true})
-    .addTo(map);
-
+  map=L.map("map",{worldCopyJump:false}).setView([65,170],4);
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png").addTo(map);
   routeLayer=L.layerGroup().addTo(map);
+
+  const legend=L.control({position:"bottomright"});
+  legend.onAdd=()=>{
+    const d=document.createElement("div");
+    d.className="legend";
+    d.innerHTML=`
+      <div><span style="background:#d32f2f"></span> AN-24</div>
+      <div><span style="background:#1976d2"></span> DHC-6</div>
+      <div><span style="background:#388e3c"></span> Ми-8</div>
+    `;
+    return d;
+  };
+  legend.addTo(map);
 }
 
-function drawMap(list){
+function drawRoutes(list){
   routeLayer.clearLayers();
   let bounds=[];
 
   list.forEach(f=>{
     if(!AIRPORTS[f.origin]||!AIRPORTS[f.destination]) return;
 
-    const a=fixLng(AIRPORTS[f.origin]);
-    const b=fixLng(AIRPORTS[f.destination]);
+    let [lat1,lng1]=AIRPORTS[f.origin];
+    let [lat2,lng2]=AIRPORTS[f.destination];
+
+    if(Math.abs(lng1-lng2)>180){
+      if(lng1>lng2) lng1-=360;
+      else lng2-=360;
+    }
+
+    const a=[lat1,lng1];
+    const b=[lat2,lng2];
 
     L.polyline([a,b],{
-      color: aircraftTypes[f.airKey].color,
+      color: aircraftColor(f.aircraftType),
       weight:2,
-      opacity:.85
+      opacity:0.85
     }).addTo(routeLayer);
 
     bounds.push(a,b);
@@ -301,18 +340,7 @@ function drawMap(list){
   if(bounds.length) map.fitBounds(bounds,{padding:[40,40]});
 }
 
-/* ===== ЛЕГЕНДА ===== */
-
-function buildLegend(){
-  const l=document.getElementById("legend");
-  Object.entries(aircraftTypes).forEach(([k,v])=>{
-    l.innerHTML+=`
-      <span><i style="background:${v.color}"></i>${v.label}</span>
-    `;
-  });
-}
-
-/* ===== DOM ===== */
+/* ================= DOM ================= */
 
 const from=document.getElementById("from");
 const to=document.getElementById("to");
@@ -321,6 +349,7 @@ const dateFrom=document.getElementById("dateFrom");
 const dateTo=document.getElementById("dateTo");
 const rows=document.getElementById("rows");
 const table=document.getElementById("table");
+const empty=document.getElementById("empty");
 </script>
 
 </body>
