@@ -255,19 +255,41 @@ document.querySelectorAll("th[data-sort]").forEach(th=>{
 let map, geo;
 
 function initMap(){
-  map=L.map("map").setView([65,170],4);
+ map = L.map("map", {
+  worldCopyJump: false,
+  maxBoundsViscosity: 1.0
+}).setView([65, 170], 4);
+
+map.setMaxBounds([
+  [-90, -180],
+  [90, 180]
+]);
   L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png").addTo(map);
   geo=L.geodesic([], {steps:40}).addTo(map);
+}
+function fixLng(latlng) {
+  let [lat, lng] = latlng;
+  if (lng > 180) lng -= 360;
+  if (lng < -180) lng += 360;
+  return [lat, lng];
 }
 
 function drawRoutes(list){
   geo.setLatLngs([]);
   list.forEach(f=>{
     if(AIRPORTS[f.origin] && AIRPORTS[f.destination]){
-      geo.addLatLngs([{
-        latlngs:[AIRPORTS[f.origin], AIRPORTS[f.destination]],
-        options:{ color: aircraftColor(f.aircraft), weight:2 }
-      }]);
+      const from = fixLng(AIRPORTS[f.origin]);
+const to   = fixLng(AIRPORTS[f.destination]);
+
+geo.addLatLngs([{
+  latlngs: [from, to],
+  options: {
+    color: aircraftColor(f.aircraft),
+    weight: 2,
+    opacity: 0.85
+  }
+}]);
+
     }
   });
 }
@@ -285,3 +307,4 @@ const empty=document.getElementById("empty");
 
 </body>
 </html>
+
