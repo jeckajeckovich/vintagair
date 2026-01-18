@@ -8,90 +8,63 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
 <style>
-body {
-  font-family: Arial, sans-serif;
-  padding:20px;
-  background:#f4f6f8;
-}
-
-header {
-  display:flex;
-  align-items:center;
-  gap:15px;
-  margin-bottom:15px;
-}
-
-header img { height:48px; }
+body { font-family: Arial, sans-serif; background:#f4f6f8; padding:20px }
+header { display:flex; align-items:center; gap:12px; margin-bottom:15px }
+header img { height:42px }
 
 .filters {
   background:#fff;
-  padding:15px;
+  padding:14px;
   border-radius:8px;
   display:flex;
   gap:10px;
   flex-wrap:wrap;
-  box-shadow:0 2px 6px rgba(0,0,0,.1);
+  box-shadow:0 2px 6px rgba(0,0,0,.1)
 }
 
-select,input,button {
-  padding:7px;
-  font-size:14px;
-}
-
-button { cursor:pointer; }
+select,input,button { padding:6px; font-size:14px }
+button { cursor:pointer }
 
 table {
   width:100%;
   border-collapse:collapse;
   background:#fff;
-  margin-top:20px;
+  margin-top:18px;
 }
-
 th,td {
   border:1px solid #ccc;
   padding:6px;
   text-align:center;
 }
-
-th {
-  background:#eee;
-  cursor:pointer;
-}
+th { background:#eee; cursor:pointer }
 
 .buy {
   background:#1e88e5;
   color:#fff;
   border:none;
-  padding:6px 10px;
+  padding:5px 10px;
   border-radius:4px;
 }
 
-#empty {
-  margin-top:25px;
-  color:#666;
-  text-align:center;
-}
+#map { height:420px; margin-top:25px; border-radius:8px }
 
-#map {
-  height:420px;
-  margin-top:30px;
-  border-radius:8px;
-}
-
-/* легенда */
 .legend {
+  margin-top:10px;
   background:#fff;
   padding:10px;
   border-radius:6px;
-  font-size:13px;
-  line-height:1.6;
+  display:inline-block;
 }
 .legend span {
-  display:inline-block;
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  margin-right:12px;
+}
+.legend i {
   width:14px;
-  height:3px;
-  margin-right:6px;
-  vertical-align:middle;
+  height:4px;
+  display:inline-block;
 }
 </style>
 </head>
@@ -104,16 +77,13 @@ th {
 </header>
 
 <div class="filters">
-  <select id="from"><option value="">Откуда</option></select>
-  <select id="to"><option value="">Куда</option></select>
-  <select id="aircraft"><option value="">Тип ВС</option></select>
+  <select id="from"></select>
+  <select id="to"></select>
+  <select id="aircraft"></select>
   <input type="date" id="dateFrom">
   <input type="date" id="dateTo">
   <button onclick="resetFilters()">Сброс</button>
-  <button onclick="showAll()">Показать всю сеть</button>
 </div>
-
-<div id="empty">Выберите параметры поиска</div>
 
 <table id="table" style="display:none">
 <thead>
@@ -134,13 +104,16 @@ th {
 
 <div id="map"></div>
 
-<script>
-/* ================= ДАННЫЕ ================= */
+<div class="legend" id="legend"></div>
 
-let flights=[];
-let filtered=[];
-let sortKey="date";
-let sortDir=1;
+<script>
+/* ===== КОНСТАНТЫ ===== */
+
+const aircraftTypes = {
+  "AN-24": { color:"#d32f2f", label:"Ан-24" },
+  "DHC-6": { color:"#1976d2", label:"DHC-6 Twin Otter" },
+  "MI":    { color:"#388e3c", label:"Ми-8 / Ми-17" }
+};
 
 const AIRPORTS = {
   DYR:[64.734,177.741],
@@ -150,18 +123,31 @@ const AIRPORTS = {
   KVM:[62.591,174.520],
   "БНГ":[63.049,179.316],
   "ВГИ":[64.405,176.002],
-  "ЭГТ":[66.320,179.122]
+  "ЭГТ":[66.320,179.122],
+  "ЗЛА":[64.600,176.990]
 };
 
-function aircraftColor(a){
-  a=a.toUpperCase();
-  if(a.includes("AN")) return "#d32f2f";
-  if(a.includes("DHC")) return "#1976d2";
-  if(a.includes("MI")) return "#388e3c";
-  return "#555";
-}
+/* ===== СОСТОЯНИЕ ===== */
 
-/* ================= CSV ================= */
+let flights=[];
+let sortKey="date", sortDir=1;
+
+/* ===== УТИЛИТЫ ===== */
+
+const normDate = d => {
+  const [dd,mm,yy]=d.split(".");
+  return `${yy}-${mm}-${dd}`;
+};
+
+const aircraftKey = name => {
+  name=name.toUpperCase();
+  if(name.includes("AN")) return "AN-24";
+  if(name.includes("DHC")) return "DHC-6";
+  if(name.includes("MI")) return "MI";
+  return null;
+};
+
+/* ===== ЗАГРУЗКА CSV ===== */
 
 fetch("chukotavia_api_results.csv")
 .then(r=>r.text())
@@ -172,99 +158,77 @@ fetch("chukotavia_api_results.csv")
     const v=l.split(",");
     let o={};
     h.forEach((k,i)=>o[k]=v[i]);
+    o.airKey=aircraftKey(o.aircraft);
     return o;
   });
-  initFilters();
   initMap();
-  applyURL();
+  updateFilters();
   render();
+  buildLegend();
 });
 
-/* ================= ФИЛЬТРЫ ================= */
+/* ===== ФИЛЬТРЫ ===== */
 
-function initFilters(){
-  fill("from", flights.map(f=>f.origin));
-  fill("to", flights.map(f=>f.destination));
-  fill("aircraft", flights.map(f=>f.aircraft));
-  document.querySelectorAll("select,input").forEach(e=>e.onchange=render);
+function filteredFlights(){
+  return flights.filter(f=>
+    (!from.value || f.origin===from.value) &&
+    (!to.value || f.destination===to.value) &&
+    (!aircraft.value || f.airKey===aircraft.value) &&
+    (!dateFrom.value || normDate(f.date)>=dateFrom.value) &&
+    (!dateTo.value || normDate(f.date)<=dateTo.value)
+  );
 }
 
-function fill(id,arr){
-  const s=document.getElementById(id);
-  [...new Set(arr)].sort().forEach(v=>s.add(new Option(v,v)));
+function updateFilters(){
+  const base = filteredFlights();
+
+  fillSelect(from, base.map(f=>f.origin), "Откуда");
+  fillSelect(to, base.map(f=>f.destination), "Куда");
+  fillSelect(aircraft, base.map(f=>f.airKey), "Тип ВС", true);
+}
+
+function fillSelect(sel, values, label, isAircraft=false){
+  const current=sel.value;
+  sel.innerHTML=`<option value="">${label}</option>`;
+  [...new Set(values)].sort().forEach(v=>{
+    if(!v) return;
+    const text=isAircraft?aircraftTypes[v].label:v;
+    sel.add(new Option(text,v));
+  });
+  sel.value=current;
 }
 
 function resetFilters(){
-  from.value="";
-  to.value="";
-  aircraft.value="";
-  dateFrom.value="";
-  dateTo.value="";
+  from.value=to.value=aircraft.value="";
+  dateFrom.value=dateTo.value="";
+  updateFilters();
   render();
 }
 
-function showAll(){
-  resetFilters();
-  drawRoutes(flights);
-}
+document.querySelectorAll("select,input").forEach(e=>{
+  e.onchange=()=>{
+    updateFilters();
+    render();
+  };
+});
 
-/* ================= URL ================= */
-
-function updateURL(){
-  const p=new URLSearchParams();
-  if(from.value) p.set("from",from.value);
-  if(to.value) p.set("to",to.value);
-  if(aircraft.value) p.set("aircraft",aircraft.value);
-  if(dateFrom.value) p.set("df",dateFrom.value);
-  if(dateTo.value) p.set("dt",dateTo.value);
-  history.replaceState(null,"","?"+p.toString());
-}
-
-function applyURL(){
-  const p=new URLSearchParams(location.search);
-  from.value=p.get("from")||"";
-  to.value=p.get("to")||"";
-  aircraft.value=p.get("aircraft")||"";
-  dateFrom.value=p.get("df")||"";
-  dateTo.value=p.get("dt")||"";
-}
-
-/* ================= РЕНДЕР ================= */
-
-function norm(d){
-  const p=d.split(".");
-  return `${p[2]}-${p[1]}-${p[0]}`;
-}
+/* ===== РЕНДЕР ТАБЛИЦЫ ===== */
 
 function render(){
-  filtered=flights.filter(f=>
-    (!from.value||f.origin===from.value)&&
-    (!to.value||f.destination===to.value)&&
-    (!aircraft.value||f.aircraft===aircraft.value)&&
-    (!dateFrom.value||norm(f.date)>=dateFrom.value)&&
-    (!dateTo.value||norm(f.date)<=dateTo.value)
-  );
+  let res=filteredFlights();
 
-  filtered.sort((a,b)=>{
+  res.sort((a,b)=>{
     let x=a[sortKey],y=b[sortKey];
-    if(sortKey!=="date"){x=+x;y=+y;}
+    if(sortKey!=="date"){x=+x;y=+y}
     return (x>y?1:-1)*sortDir;
   });
 
   rows.innerHTML="";
-  if(!filtered.length){
-    table.style.display="none";
-    empty.style.display="block";
-    drawRoutes([]);
-    return;
-  }
+  table.style.display=res.length?"table":"none";
 
-  table.style.display="table";
-  empty.style.display="none";
-
-  filtered.forEach((f,i)=>{
+  res.forEach(f=>{
     rows.innerHTML+=`
-    <tr onmouseenter="highlight(${i})" onmouseleave="highlight(null)">
+    <tr>
       <td>${f.date}</td>
       <td>${f.origin}</td>
       <td>${f.destination}</td>
@@ -281,11 +245,10 @@ function render(){
     </tr>`;
   });
 
-  updateURL();
-  drawRoutes(filtered);
+  drawMap(res);
 }
 
-/* ================= СОРТИРОВКА ================= */
+/* ===== СОРТИРОВКА ===== */
 
 document.querySelectorAll("th[data-sort]").forEach(th=>{
   th.onclick=()=>{
@@ -296,86 +259,60 @@ document.querySelectorAll("th[data-sort]").forEach(th=>{
   };
 });
 
-/* ================= КАРТА ================= */
+/* ===== КАРТА ===== */
 
-let map,routeLayer,markerLayer,polylines=[];
+let map, routeLayer;
+
+function fixLng([lat,lng]){
+  if(lng>180) lng-=360;
+  if(lng<-180) lng+=360;
+  return [lat,lng];
+}
 
 function initMap(){
-  map=L.map("map",{worldCopyJump:false}).setView([65,170],4);
+  map=L.map("map",{worldCopyJump:false})
+    .setView([65,170],4);
 
-  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png")
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{noWrap:true})
     .addTo(map);
 
   routeLayer=L.layerGroup().addTo(map);
-  markerLayer=L.layerGroup().addTo(map);
-
-  // легенда
-  const legend=L.control({position:"bottomright"});
-  legend.onAdd=()=>{
-    const d=L.DomUtil.create("div","legend");
-    d.innerHTML=`
-      <b>Тип ВС</b><br>
-      <span style="background:#d32f2f"></span> AN-24<br>
-      <span style="background:#1976d2"></span> DHC-6<br>
-      <span style="background:#388e3c"></span> Ми<br>
-    `;
-    return d;
-  };
-  legend.addTo(map);
 }
 
-function buildPath(a,b){
-  const [lat1,lng1]=a;
-  const [lat2,lng2]=b;
-  if(Math.abs(lng1-lng2)>180){
-    const midLng=lng1>0?180:-180;
-    const t=(midLng-lng1)/(lng2-lng1);
-    const midLat=lat1+(lat2-lat1)*t;
-    return [[lat1,lng1],[midLat,midLng],[lat2,lng2]];
-  }
-  return [[lat1,lng1],[lat2,lng2]];
-}
-
-function drawRoutes(list){
+function drawMap(list){
   routeLayer.clearLayers();
-  markerLayer.clearLayers();
-  polylines=[];
   let bounds=[];
 
   list.forEach(f=>{
     if(!AIRPORTS[f.origin]||!AIRPORTS[f.destination]) return;
-    const a=AIRPORTS[f.origin];
-    const b=AIRPORTS[f.destination];
 
-    const line=L.polyline(buildPath(a,b),{
-      color:aircraftColor(f.aircraft),
+    const a=fixLng(AIRPORTS[f.origin]);
+    const b=fixLng(AIRPORTS[f.destination]);
+
+    L.polyline([a,b],{
+      color: aircraftTypes[f.airKey].color,
       weight:2,
-      opacity:0.85
+      opacity:.85
     }).addTo(routeLayer);
 
-    polylines.push(line);
-
-    [a,b].forEach(p=>{
-      L.circleMarker(p,{
-        radius:4,
-        color:"#000",
-        fillColor:"#fff",
-        fillOpacity:1
-      }).addTo(markerLayer);
-      bounds.push(p);
-    });
+    bounds.push(a,b);
   });
 
   if(bounds.length) map.fitBounds(bounds,{padding:[40,40]});
 }
 
-function highlight(i){
-  polylines.forEach((l,idx)=>{
-    l.setStyle({weight: idx===i?5:2, opacity: idx===i?1:0.6});
+/* ===== ЛЕГЕНДА ===== */
+
+function buildLegend(){
+  const l=document.getElementById("legend");
+  Object.entries(aircraftTypes).forEach(([k,v])=>{
+    l.innerHTML+=`
+      <span><i style="background:${v.color}"></i>${v.label}</span>
+    `;
   });
 }
 
-/* ================= DOM ================= */
+/* ===== DOM ===== */
 
 const from=document.getElementById("from");
 const to=document.getElementById("to");
@@ -384,7 +321,6 @@ const dateFrom=document.getElementById("dateFrom");
 const dateTo=document.getElementById("dateTo");
 const rows=document.getElementById("rows");
 const table=document.getElementById("table");
-const empty=document.getElementById("empty");
 </script>
 
 </body>
