@@ -2,79 +2,62 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<title>ЧукотАВИА — поиск рейсов</title>
+<title>VintageAir — рейсы ЧукотАВИА</title>
 
 <style>
-body {
-  font-family: Arial, sans-serif;
-  padding: 20px;
-  background: #f7f7f7;
-}
-
-h2 {
-  margin-bottom: 15px;
-}
+body { font-family: Arial, sans-serif; padding: 20px; background:#f6f6f6 }
+h2 { margin-bottom: 10px }
 
 .filters {
-  background: #fff;
-  padding: 15px;
-  border-radius: 8px;
-  display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
-  align-items: center;
-  box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+  background:#fff;
+  padding:15px;
+  border-radius:8px;
+  display:flex;
+  gap:10px;
+  flex-wrap:wrap;
+  box-shadow:0 2px 6px rgba(0,0,0,.1)
 }
 
-select, input, button {
-  padding: 8px;
-  font-size: 14px;
-}
-
-button {
-  cursor: pointer;
-  border: none;
-  border-radius: 4px;
-}
-
-#searchBtn {
-  background: #1976d2;
-  color: #fff;
-}
-
-#resetBtn {
-  background: #ccc;
+select, input {
+  padding:7px;
+  font-size:14px;
 }
 
 table {
-  border-collapse: collapse;
-  width: 100%;
-  margin-top: 20px;
-  background: #fff;
+  width:100%;
+  border-collapse:collapse;
+  background:#fff;
+  margin-top:20px;
 }
 
-th, td {
-  border: 1px solid #ddd;
-  padding: 6px;
-  text-align: center;
+th,td {
+  border:1px solid #ccc;
+  padding:6px;
+  text-align:center;
 }
 
 th {
-  background: #eee;
+  background:#eee;
+  cursor:pointer;
 }
 
 #empty {
-  margin-top: 30px;
-  color: #777;
-  text-align: center;
-  font-size: 16px;
+  margin-top:25px;
+  color:#666;
+  text-align:center;
+}
+#routes {
+  margin-top:30px;
+  background:#fff;
+  padding:15px;
+  border-radius:8px;
 }
 </style>
 </head>
 
 <body>
 
-<h2>✈️ ЧукотАВИА — поиск рейсов</h2>
+<h2>✈️ VintageAir — рейсы ЧукотАВИА</h2>
 
 <div class="filters">
   <select id="from"><option value="">Откуда</option></select>
@@ -83,118 +66,108 @@ th {
 
   <input type="date" id="dateFrom">
   <input type="date" id="dateTo">
-
-  <button id="searchBtn">Показать рейсы</button>
-  <button id="resetBtn">Сбросить</button>
 </div>
 
-<div id="empty">Выберите параметры поиска и нажмите «Показать рейсы»</div>
+<div id="empty">Выберите параметры поиска</div>
 
 <table id="table" style="display:none">
 <thead>
 <tr>
-  <th>Дата</th>
+  <th data-sort="date">Дата</th>
   <th>Откуда</th>
   <th>Куда</th>
   <th>Рейс</th>
   <th>Вылет</th>
   <th>Прилёт</th>
   <th>Самолёт</th>
-  <th>Цена</th>
-  <th>Мест</th>
+  <th data-sort="price">Цена</th>
+  <th data-sort="available">Мест</th>
 </tr>
 </thead>
 <tbody id="rows"></tbody>
 </table>
 
-<script>
-/* ===== CSV ДАННЫЕ ===== */
-const RAW_CSV = `
-date,origin,destination,flight_number,departure,arrival,aircraft,price,available
-27.01.2026,DYR,БНГ,15,10:00,11:20,ANTONOV AN-24,19000.00,9
-11.02.2026,DYR,БНГ,15,10:00,11:20,ANTONOV AN-24,19000.00,9
-22.01.2026,DYR,ВГИ,49,09:30,11:30,DE HAVILLAND DHC-6 TWIN OTTER,7000.00,2
-29.01.2026,DYR,ВГИ,3,10:00,12:00,DE HAVILLAND DHC-6 TWIN OTTER,7000.00,3
-12.02.2026,DYR,ВГИ,3,10:00,12:00,DE HAVILLAND DHC-6 TWIN OTTER,7000.00,8
-09.02.2026,DYR,KPW,25,10:00,12:20,ANTONOV AN-24,17000.00,9
-03.02.2026,DYR,KVM,7,10:00,12:00,DE HAVILLAND DHC-6 TWIN OTTER,7000.00,2
-10.02.2026,DYR,KVM,7,09:30,11:35,MI8/MI17/MI171/MI172,7000.00,7
-20.01.2026,DYR,PVS,113,10:00,12:00,ANTONOV AN-24,15000.00,2
-`;
+<div id="routes">
+  <h3>🗺️ Маршруты</h3>
+  <ul id="routesList"></ul>
+</div>
 
-/* ===== ПАРСИНГ ===== */
-const lines = RAW_CSV.trim().split("\n");
-const headers = lines.shift().split(",");
-const flights = lines.map(l => {
-  const v = l.split(",");
-  let o = {};
-  headers.forEach((h,i)=>o[h]=v[i]);
-  return o;
+<script>
+let flights = [];
+let sortKey = null;
+let sortDir = 1;
+
+/* ===== ЗАГРУЗКА CSV ===== */
+fetch("chukotavia_api_results.csv")
+.then(r=>r.text())
+.then(csv=>{
+  const lines = csv.trim().split("\n");
+  const headers = lines.shift().split(",");
+  flights = lines.map(l=>{
+    const v=l.split(",");
+    let o={};
+    headers.forEach((h,i)=>o[h]=v[i]);
+    return o;
+  });
+  initFilters();
+  render();
+  renderRoutes();
 });
 
 /* ===== ВСПОМОГАТЕЛЬНОЕ ===== */
-const normDate = d => {
-  const p = d.split(".");
+const norm = d => {
+  const p=d.split(".");
   return `${p[2]}-${p[1]}-${p[0]}`;
 };
 
-/* ===== ЗАПОЛНЕНИЕ ФИЛЬТРОВ ===== */
-function fillSelect(id, values){
-  const s=document.getElementById(id);
-  [...new Set(values)].sort().forEach(v=>{
-    s.add(new Option(v,v));
+const uniq = arr => [...new Set(arr)].sort();
+
+/* ===== ФИЛЬТРЫ ===== */
+function initFilters(){
+  fill("from", flights.map(f=>f.origin));
+  fill("to", flights.map(f=>f.destination));
+  fill("aircraft", flights.map(f=>f.aircraft));
+
+  document.querySelectorAll("select,input").forEach(e=>{
+    e.addEventListener("change", render);
   });
 }
 
-fillSelect("from", flights.map(f=>f.origin));
-fillSelect("to", flights.map(f=>f.destination));
-fillSelect("aircraft", flights.map(f=>f.aircraft));
+function fill(id, values){
+  const s=document.getElementById(id);
+  uniq(values).forEach(v=>s.add(new Option(v,v)));
+}
 
-/* ===== ПОИСК ===== */
-document.getElementById("searchBtn").onclick = () => {
-  const from = fromSel.value;
-  const to = toSel.value;
-  const aircraft = aircraftSel.value;
-  const df = dateFrom.value;
-  const dt = dateTo.value;
-
+/* ===== РЕНДЕР ===== */
+function render(){
   let res = flights.filter(f =>
-    (!from || f.origin===from) &&
-    (!to || f.destination===to) &&
-    (!aircraft || f.aircraft===aircraft) &&
-    (!df || normDate(f.date)>=df) &&
-    (!dt || normDate(f.date)<=dt)
+    (!from.value || f.origin===from.value) &&
+    (!to.value || f.destination===to.value) &&
+    (!aircraft.value || f.aircraft===aircraft.value) &&
+    (!dateFrom.value || norm(f.date)>=dateFrom.value) &&
+    (!dateTo.value || norm(f.date)<=dateTo.value)
   );
 
-  render(res);
-};
-
-document.getElementById("resetBtn").onclick = () => {
-  fromSel.value="";
-  toSel.value="";
-  aircraftSel.value="";
-  dateFrom.value="";
-  dateTo.value="";
-  document.getElementById("table").style.display="none";
-  document.getElementById("empty").style.display="block";
-};
-
-const fromSel = document.getElementById("from");
-const toSel = document.getElementById("to");
-const aircraftSel = document.getElementById("aircraft");
-const dateFrom = document.getElementById("dateFrom");
-const dateTo = document.getElementById("dateTo");
-
-function render(data){
-  const tbody=document.getElementById("rows");
-  tbody.innerHTML="";
-
-  if(!data.length){
-    tbody.innerHTML="<tr><td colspan='9'>Ничего не найдено</td></tr>";
+  if(sortKey){
+    res.sort((a,b)=>{
+      let x=a[sortKey], y=b[sortKey];
+      if(sortKey!=="date") x=Number(x), y=Number(y);
+      return (x>y?1:-1)*sortDir;
+    });
   }
 
-  data.forEach(f=>{
-    tbody.innerHTML+=`
+  rows.innerHTML="";
+  if(!res.length){
+    empty.style.display="block";
+    table.style.display="none";
+    return;
+  }
+
+  empty.style.display="none";
+  table.style.display="table";
+
+  res.forEach(f=>{
+    rows.innerHTML+=`
     <tr>
       <td>${f.date}</td>
       <td>${f.origin}</td>
@@ -207,10 +180,37 @@ function render(data){
       <td>${f.available}</td>
     </tr>`;
   });
-
-  document.getElementById("empty").style.display="none";
-  document.getElementById("table").style.display="table";
 }
+
+/* ===== СОРТИРОВКА ===== */
+document.querySelectorAll("th[data-sort]").forEach(th=>{
+  th.onclick=()=>{
+    const k=th.dataset.sort;
+    sortDir = (sortKey===k)?-sortDir:1;
+    sortKey=k;
+    render();
+  };
+});
+
+/* ===== МАРШРУТЫ ===== */
+function renderRoutes(){
+  const set = new Set(flights.map(f=>`${f.origin} → ${f.destination}`));
+  routesList.innerHTML="";
+  [...set].sort().forEach(r=>{
+    routesList.innerHTML+=`<li>${r}</li>`;
+  });
+}
+
+/* ===== ЭЛЕМЕНТЫ ===== */
+const from=document.getElementById("from");
+const to=document.getElementById("to");
+const aircraft=document.getElementById("aircraft");
+const dateFrom=document.getElementById("dateFrom");
+const dateTo=document.getElementById("dateTo");
+const rows=document.getElementById("rows");
+const table=document.getElementById("table");
+const empty=document.getElementById("empty");
+const routesList=document.getElementById("routesList");
 </script>
 
 </body>
