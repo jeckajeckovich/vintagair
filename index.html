@@ -2,205 +2,223 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<title>VintageAir — рейсы ЧукотАВИА</title>
+<title>VintageAir — ЧукотАВИА</title>
+
+<link
+  rel="stylesheet"
+  href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+/>
 
 <style>
-body {
-  font-family: Arial, sans-serif;
-  padding: 20px;
-  background: #fafafa;
+body { font-family: Arial, sans-serif; padding:20px; background:#f4f6f8 }
+h2 { margin:10px 0 }
+
+header {
+  display:flex;
+  align-items:center;
+  gap:15px;
 }
 
-h2 {
-  margin-bottom: 15px;
+header img {
+  height:50px;
 }
 
-.controls {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  margin-bottom: 15px;
+.filters {
+  background:#fff;
+  padding:15px;
+  border-radius:8px;
+  display:flex;
+  gap:10px;
+  flex-wrap:wrap;
+  box-shadow:0 2px 6px rgba(0,0,0,.1)
 }
 
-select, input, button {
-  padding: 8px;
-  font-size: 14px;
+select,input,button {
+  padding:7px;
+  font-size:14px;
 }
 
 button {
-  cursor: pointer;
+  cursor:pointer;
 }
 
 table {
-  border-collapse: collapse;
-  width: 100%;
-  background: white;
+  width:100%;
+  border-collapse:collapse;
+  background:#fff;
+  margin-top:20px;
 }
 
-th, td {
-  border: 1px solid #ccc;
-  padding: 6px;
-  text-align: center;
+th,td {
+  border:1px solid #ccc;
+  padding:6px;
+  text-align:center;
 }
 
 th {
-  background: #eee;
+  background:#eee;
+  cursor:pointer;
 }
 
-.buy-btn {
-  background: #007bff;
-  color: white;
-  text-decoration: none;
-  padding: 4px 8px;
-  border-radius: 4px;
-  display: inline-block;
+.buy {
+  background:#1e88e5;
+  color:#fff;
+  border:none;
+  padding:5px 8px;
+  border-radius:4px;
 }
 
-.buy-btn:hover {
-  background: #0056b3;
+#empty {
+  margin-top:25px;
+  color:#666;
+  text-align:center;
 }
 
-.empty {
-  margin-top: 10px;
-  color: #666;
+#map {
+  height:400px;
+  margin-top:30px;
+  border-radius:8px;
 }
+
 </style>
 </head>
 
 <body>
 
-<h2>✈️ VintageAir — рейсы ЧукотАВИА</h2>
+<header>
+  <img src="logo.png" alt="VintageAir">
+  <h2>✈️ VintageAir — рейсы ЧукотАВИА</h2>
+</header>
 
-<div class="controls">
-  <select id="from">
-    <option value="">Откуда</option>
-  </select>
-
-  <select id="to">
-    <option value="">Куда</option>
-  </select>
-
-  <select id="aircraft">
-    <option value="">Тип ВС</option>
-  </select>
+<div class="filters">
+  <select id="from"><option value="">Откуда</option></select>
+  <select id="to"><option value="">Куда</option></select>
+  <select id="aircraft"><option value="">Тип ВС</option></select>
 
   <input type="date" id="dateFrom">
   <input type="date" id="dateTo">
 
-  <button onclick="render()">Показать</button>
-  <button onclick="resetFilters()">Сброс</button>
+  <button onclick="resetFilters()">Сбросить</button>
 </div>
 
-<table>
+<div id="empty">Выберите параметры поиска</div>
+
+<table id="table" style="display:none">
 <thead>
 <tr>
-  <th>Дата</th>
+  <th data-sort="date">Дата</th>
   <th>Откуда</th>
   <th>Куда</th>
   <th>Рейс</th>
   <th>Вылет</th>
   <th>Прилёт</th>
   <th>Самолёт</th>
-  <th>Цена</th>
-  <th>Мест</th>
+  <th data-sort="price">Цена</th>
+  <th data-sort="available">Мест</th>
   <th></th>
 </tr>
 </thead>
 <tbody id="rows"></tbody>
 </table>
 
-<div class="empty" id="empty"></div>
+<div id="map"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
 <script>
-/* ==== CSV ДАННЫЕ ==== */
-const RAW_CSV = `
-date,origin,destination,flight_number,departure,arrival,aircraft,price,available
-27.01.2026,DYR,БНГ,15,10:00,11:20,ANTONOV AN-24,19000.00,9
-11.02.2026,DYR,БНГ,15,10:00,11:20,ANTONOV AN-24,19000.00,9
-22.01.2026,DYR,ВГИ,49,09:30,11:30,DE HAVILLAND DHC-6 TWIN OTTER,7000.00,2
-29.01.2026,DYR,ВГИ,3,10:00,12:00,DE HAVILLAND DHC-6 TWIN OTTER,7000.00,3
-12.02.2026,DYR,ВГИ,3,10:00,12:00,DE HAVILLAND DHC-6 TWIN OTTER,7000.00,8
-09.02.2026,DYR,KPW,25,10:00,12:20,ANTONOV AN-24,17000.00,9
-03.02.2026,DYR,KVM,7,10:00,12:00,DE HAVILLAND DHC-6 TWIN OTTER,7000.00,2
-10.02.2026,DYR,KVM,7,09:30,11:35,MI8/MI17/MI171/MI172,7000.00,7
-20.01.2026,DYR,PVS,113,10:00,12:00,ANTONOV AN-24,15000.00,2
-`;
+let flights=[];
+let sortKey=null;
+let sortDir=1;
 
-/* ==== ПАРСИНГ CSV ==== */
-const lines = RAW_CSV.trim().split("\n");
-const headers = lines.shift().split(",");
+/* ===== АЭРОПОРТЫ (координаты) ===== */
+const AIRPORTS = {
+  DYR:[64.734,177.741],
+  PVS:[64.378,-173.242],
+  KPW:[67.845,166.139],
+  PWE:[69.783,170.597],
+  KVM:[62.591,174.520],
+  "БНГ":[63.049,179.316],
+  "ВГИ":[64.405,176.002],
+  "ЭГТ":[66.320,179.122]
+};
 
-const flights = lines.map(l => {
-  const v = l.split(",");
-  let o = {};
-  headers.forEach((h,i)=>o[h]=v[i]);
-  return o;
+/* ===== ЗАГРУЗКА CSV ===== */
+fetch("chukotavia_api_results.csv")
+.then(r=>r.text())
+.then(csv=>{
+  const lines=csv.trim().split("\n");
+  const h=lines.shift().split(",");
+  flights=lines.map(l=>{
+    const v=l.split(",");
+    let o={};
+    h.forEach((k,i)=>o[k]=v[i]);
+    return o;
+  });
+  initFilters();
+  initMap();
+  render();
 });
 
-/* ==== ЗАПОЛНЕНИЕ ФИЛЬТРОВ ==== */
-const fromSel = document.getElementById("from");
-const toSel = document.getElementById("to");
-const aircraftSel = document.getElementById("aircraft");
+/* ===== ФИЛЬТРЫ ===== */
+function initFilters(){
+  fill("from", flights.map(f=>f.origin));
+  fill("to", flights.map(f=>f.destination));
+  fill("aircraft", flights.map(f=>f.aircraft));
 
-[...new Set(flights.map(f=>f.origin))].sort().forEach(v=>{
-  fromSel.add(new Option(v,v));
-});
+  document.querySelectorAll("select,input")
+    .forEach(e=>e.onchange=render);
+}
 
-[...new Set(flights.map(f=>f.destination))].sort().forEach(v=>{
-  toSel.add(new Option(v,v));
-});
-
-[...new Set(flights.map(f=>f.aircraft))].sort().forEach(v=>{
-  aircraftSel.add(new Option(v,v));
-});
-
-/* ==== УТИЛИТЫ ==== */
-function toISO(d){
-  const [dd,mm,yy] = d.split(".");
-  return `${yy}-${mm}-${dd}`;
+function fill(id,arr){
+  const s=document.getElementById(id);
+  [...new Set(arr)].sort().forEach(v=>s.add(new Option(v,v)));
 }
 
 function resetFilters(){
-  fromSel.value = "";
-  toSel.value = "";
-  aircraftSel.value = "";
-  dateFrom.value = "";
-  dateTo.value = "";
+  from.value="";
+  to.value="";
+  aircraft.value="";
+  dateFrom.value="";
+  dateTo.value="";
   render();
 }
 
-/* ==== РЕНДЕР ==== */
+/* ===== ДАТЫ ===== */
+const norm=d=>{
+  const p=d.split(".");
+  return `${p[2]}-${p[1]}-${p[0]}`;
+};
+
+/* ===== РЕНДЕР ===== */
 function render(){
-  const tbody = document.getElementById("rows");
-  const empty = document.getElementById("empty");
-  tbody.innerHTML = "";
-  empty.textContent = "";
+  let res=flights.filter(f=>
+    (!from.value||f.origin===from.value)&&
+    (!to.value||f.destination===to.value)&&
+    (!aircraft.value||f.aircraft===aircraft.value)&&
+    (!dateFrom.value||norm(f.date)>=dateFrom.value)&&
+    (!dateTo.value||norm(f.date)<=dateTo.value)
+  );
 
-  const fFrom = fromSel.value;
-  const fTo = toSel.value;
-  const fAircraft = aircraftSel.value;
-  const dFrom = dateFrom.value;
-  const dTo = dateTo.value;
+  if(sortKey){
+    res.sort((a,b)=>{
+      let x=a[sortKey], y=b[sortKey];
+      if(sortKey!=="date"){x=+x;y=+y}
+      return (x>y?1:-1)*sortDir;
+    });
+  }
 
-  const res = flights.filter(f=>{
-    if (fFrom && f.origin !== fFrom) return false;
-    if (fTo && f.destination !== fTo) return false;
-    if (fAircraft && f.aircraft !== fAircraft) return false;
-
-    const iso = toISO(f.date);
-    if (dFrom && iso < dFrom) return false;
-    if (dTo && iso > dTo) return false;
-
-    return true;
-  });
-
-  if (!res.length) {
-    empty.textContent = "Рейсы не найдены";
+  rows.innerHTML="";
+  if(!res.length){
+    table.style.display="none";
+    empty.style.display="block";
     return;
   }
 
+  table.style.display="table";
+  empty.style.display="none";
+
   res.forEach(f=>{
-    tbody.innerHTML += `
+    rows.innerHTML+=`
     <tr>
       <td>${f.date}</td>
       <td>${f.origin}</td>
@@ -209,19 +227,62 @@ function render(){
       <td>${f.departure}</td>
       <td>${f.arrival}</td>
       <td>${f.aircraft}</td>
-      <td>${Number(f.price).toLocaleString("ru-RU")} ₽</td>
-      <td>${f.available ?? "—"}</td>
+      <td>${Number(f.price).toLocaleString()} ₽</td>
+      <td>${f.available}</td>
       <td>
-        <a class="buy-btn" href="https://booking.chukotavia.com/websky/" target="_blank">
-          Купить
+        <a href="https://booking.chukotavia.com/websky/" target="_blank">
+          <button class="buy">Купить</button>
         </a>
       </td>
     </tr>`;
   });
+
+  drawRoutes(res);
 }
 
-/* ==== ПОКАЗ ПРИ ЗАГРУЗКЕ ==== */
-render();
+/* ===== СОРТИРОВКА ===== */
+document.querySelectorAll("th[data-sort]").forEach(th=>{
+  th.onclick=()=>{
+    const k=th.dataset.sort;
+    sortDir=(sortKey===k)?-sortDir:1;
+    sortKey=k;
+    render();
+  };
+});
+
+/* ===== КАРТА ===== */
+let map, layer;
+
+function initMap(){
+  map=L.map("map").setView([65,170],4);
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{
+    attribution:"© OpenStreetMap"
+  }).addTo(map);
+  layer=L.layerGroup().addTo(map);
+}
+
+function drawRoutes(list){
+  layer.clearLayers();
+
+  list.forEach(f=>{
+    if(AIRPORTS[f.origin]&&AIRPORTS[f.destination]){
+      L.polyline(
+        [AIRPORTS[f.origin],AIRPORTS[f.destination]],
+        {color:"red"}
+      ).addTo(layer);
+    }
+  });
+}
+
+/* ===== DOM ===== */
+const from=document.getElementById("from");
+const to=document.getElementById("to");
+const aircraft=document.getElementById("aircraft");
+const dateFrom=document.getElementById("dateFrom");
+const dateTo=document.getElementById("dateTo");
+const rows=document.getElementById("rows");
+const table=document.getElementById("table");
+const empty=document.getElementById("empty");
 </script>
 
 </body>
