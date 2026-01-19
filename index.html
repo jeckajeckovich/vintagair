@@ -121,6 +121,16 @@ th { background:#eee }
   margin-right:6px;
 }
 tr.row-hover:hover { background:#f5faff; cursor:pointer; }
+
+.notice {
+  margin-top:12px;
+  background:#fff8e1;
+  padding:10px;
+  border-radius:8px;
+  border:1px solid #ffe082;
+}
+.missing-list { color:#c62828; font-weight:600; }
+.popup-flight { margin-bottom:6px; }
 </style>
 </head>
 
@@ -161,7 +171,13 @@ tr.row-hover:hover { background:#f5faff; cursor:pointer; }
   <button onclick="resetFilters()">Сброс</button>
 </div>
 
-<!-- ===== ТАБЛИЦА (НЕ МЕНЯЛ) ===== -->
+<div id="missingNotice" class="notice" style="display:none">
+  <div>Некоторые коды аэропортов из CSV не имеют координат и не отображаются на карте:</div>
+  <div class="missing-list" id="missingList"></div>
+  <div>Пожалуйста, добавьте координаты в AIRPORTS в index.html для этих кодов (формат: code:[lat,lng]).</div>
+</div>
+
+<!-- ===== ТАБЛИЦА ===== -->
 <table id="table" style="display:none">
 <thead>
 <tr>
@@ -172,6 +188,7 @@ tr.row-hover:hover { background:#f5faff; cursor:pointer; }
   <th>Вылет</th>
   <th>Прилёт</th>
   <th>Самолёт</th>
+  <th>Свободно</th>
   <th></th>
 </tr>
 </thead>
@@ -184,7 +201,11 @@ tr.row-hover:hover { background:#f5faff; cursor:pointer; }
 let flights=[];
 
 /* ===== АЭРОПОРТЫ =====
-   Убедитесь, что коды в CSV совпадают с ключами здесь (например, DYR, PVS и т.д.).
+   Добавьте сюда координаты для кодов, которые есть в вашем CSV.
+   Пример:
+     BNG: [64.123,170.456],
+     ВГИ: [63.987,171.234]
+   Если координаты отсутствуют — маршруты с этими кодами не будут отображаться.
 */
 const AIRPORTS={
   DYR:[64.734,177.741],
@@ -192,17 +213,18 @@ const AIRPORTS={
   KPW:[67.845,166.139],
   PWE:[69.783,170.597],
   KVM:[62.591,174.520],
-  ЭГТ:[66.320,179.122],
-  ЗЛА:[64.817,179.967]
+  "ЭГТ":[66.320,179.122],
+  "ЗЛА":[64.817,179.967]
+  // добавить БНГ и ВГИ по возможности
 };
 
 /* ===== ВС ===== */
 function normalizeAircraft(a){
   if(!a) return "OTHER";
   a=a.toString().toUpperCase();
-  if(a.includes("AN-24")||a.includes("AN24")) return "AN-24";
-  if(a.includes("DHC-6")||a.includes("DHC6")||a.includes("OTTER")) return "DHC-6";
-  if(a.includes("MI")||a.includes("МИ")||a.includes("MI-8")||a.includes("MI8")||a.includes("МИ-8")) return "MI";
+  if(a.includes("AN-24")||a.includes("AN24")||a.includes("ANTONOV")) return "AN-24";
+  if(a.includes("DHC-6")||a.includes("DHC6")||a.includes("TWIN OTTER")||a.includes("OTTER")) return "DHC-6";
+  if(a.includes("MI")||a.includes("МИ")||a.includes("MI8")||a.includes("MI-8")||a.includes("МИ-8")) return "MI";
   return "OTHER";
 }
 
@@ -214,13 +236,14 @@ const COLORS={
 };
 
 /* ===== КАРТА И ГРУППЫ ===== */
-let map,geo,markersGroup;
+let map,geo,markersGroup,interactionGroup;
 
 function initMap(){
   map=L.map("map",{worldCopyJump:false}).setView([65,170],4);
   L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png").addTo(map);
   geo=L.geodesic([], {steps:64}).addTo(map);
   markersGroup = L.layerGroup().addTo(map);
+  interactionGroup = L.layerGroup().addTo(map);
 
   const legend=L.control({position:"bottomright"});
   legend.onAdd=()=>{
@@ -239,21 +262,19 @@ function initMap(){
 function pickField(obj, candidates){
   for(const c of candidates){
     if(obj[c]!==undefined) return obj[c];
-    // также попытка с разным регистром
     const key = Object.keys(obj).find(k=>k && k.toLowerCase() === c.toLowerCase());
     if(key) return obj[key];
   }
   return "";
 }
 
-/* ===== ЗАГРУЗКА CSV с PapaParse (устойчивее, чем простое split) ===== */
+/* ===== ЗАГРУЗКА CSV с PapaParse ===== */
 fetch("chukotavia_api_results.csv")
 .then(r=>r.text())
 .then(text=>{
   const res = Papa.parse(text, {header:true, skipEmptyLines:true, dynamicTyping:false});
   const data = res.data || [];
   flights = data.map(row=>{
-    // Здесь перечислены возможные названия столбцов — если у вас другие, пришлите заголовок CSV
     const f = {};
     f.date = pickField(row, ["date","Date","дата","Дата"]);
     f.origin = pickField(row, ["origin","Origin","from","From","Откуда","откуда","origin_iata","orig"]);
@@ -263,6 +284,7 @@ fetch("chukotavia_api_results.csv")
     f.arrival = pickField(row, ["arrival","Arrival","прилёт","Прилёт","arrival_time"]);
     f.aircraft = pickField(row, ["aircraft","Aircraft","тип_самолёта","type","type_aircraft"]);
     f.price = pickField(row, ["price","Price","цена","Цена"]) || 0;
+    f.available = pickField(row, ["available","Available","places","seats"]) || "";
     f.aircraftType = normalizeAircraft(f.aircraft);
     return f;
   });
@@ -278,16 +300,14 @@ fetch("chukotavia_api_results.csv")
 
 /* ===== ФИЛЬТРЫ ===== */
 function norm(d){
-  // ожидается формат dd.mm.yyyy — функция возвращает yyyy-mm-dd
   if(!d) return "";
   const p = d.split(".");
-  if(p.length!==3) return d; // если другой формат — вернуть как есть
+  if(p.length!==3) return d;
   return `${p[2]}-${p[1]}-${p[0]}`;
 }
 
 function filtered(){
   return flights.filter(f=>{
-    // сравнение дат — приводим даты из CSV к ISO-строке, если они в формате dd.mm.yyyy
     const fdate = f.date ? (f.date.includes(".") ? norm(f.date) : f.date) : "";
     return (!from.value || (f.origin && f.origin === from.value)) &&
            (!to.value || (f.destination && f.destination === to.value)) &&
@@ -326,8 +346,9 @@ const dateFrom=document.getElementById("dateFrom");
 const dateTo=document.getElementById("dateTo");
 const rows=document.getElementById("rows");
 const table=document.getElementById("table");
+const missingNotice=document.getElementById("missingNotice");
+const missingList=document.getElementById("missingList");
 
-// Обработчики изменений фильтров (теперь выбор в селектах сразу обновляет результаты)
 [from,to,aircraft,dateFrom,dateTo].forEach(el=>{
   el.addEventListener('change', ()=>{ updateFilters(); render(); });
 });
@@ -351,6 +372,7 @@ function render(){
       <td>${f.departure||""}</td>
       <td>${f.arrival||""}</td>
       <td>${f.aircraft||""}</td>
+      <td>${f.available||""}</td>
       <td><button class="buy">от ${Number(f.price||0).toLocaleString()} ₽</button></td>
     </tr>`;
   });
@@ -369,8 +391,7 @@ function render(){
       e.stopPropagation();
       const f = res[i];
       if(!f) return;
-      // Пока что — простое окно. Здесь можно заменить на переход на страницу бронирования.
-      alert(`Бронирование:\nРейс ${f.flight_number}\n${f.origin} → ${f.destination}\nДата: ${f.date}\nЦена: ${Number(f.price||0).toLocaleString()} ₽`);
+      openBookingForFlight(f);
     };
   });
 
@@ -381,31 +402,71 @@ function render(){
 function drawRoutes(list){
   geo.setLatLngs([]);
   markersGroup.clearLayers();
+  interactionGroup.clearLayers();
 
   const usedAirports = new Set();
   const latlngsForBounds = [];
+  const missing = new Set();
 
+  // сгруппируем рейсы по паре origin-destination (чтобы в popup показать все рейсы между парой)
+  const pairs = {}; // key = origin|destination
   list.forEach(f=>{
     if(!f.origin || !f.destination) return;
-    if(!AIRPORTS[f.origin] || !AIRPORTS[f.destination]) return;
+    const key = `${f.origin}|${f.destination}`;
+    pairs[key] = pairs[key] || [];
+    pairs[key].push(f);
+  });
 
-    let [lat1,lng1]=AIRPORTS[f.origin];
-    let [lat2,lng2]=AIRPORTS[f.destination];
+  Object.keys(pairs).forEach(key=>{
+    const [origin,destination] = key.split("|");
+    const flightsForPair = pairs[key];
 
-    // коррекция на международную датовую линию
-    if(Math.abs(lng1-lng2)>180){
-      if(lng1>lng2) lng1-=360;
-      else lng2-=360;
+    if(!AIRPORTS[origin] || !AIRPORTS[destination]){
+      if(!AIRPORTS[origin]) missing.add(origin);
+      if(!AIRPORTS[destination]) missing.add(destination);
+      return;
     }
 
+    let [lat1,lng1] = AIRPORTS[origin];
+    let [lat2,lng2] = AIRPORTS[destination];
+
+    if(Math.abs(lng1-lng2)>180){
+      if(lng1>lng2) lng1-=360; else lng2-=360;
+    }
+
+    // геодезическая дуга
     geo.addLatLngs([{
       latlngs:[[lat1,lng1],[lat2,lng2]],
-      options:{color:COLORS[f.aircraftType]||COLORS["OTHER"],weight:2,opacity:.85}
+      options:{color:COLORS[flightsForPair[0].aircraftType]||COLORS["OTHER"],weight:2,opacity:.85}
     }]);
 
-    usedAirports.add(f.origin);
-    usedAirports.add(f.destination);
+    // невидимая толстая линия для клика и popup
+    const poly = L.polyline([[lat1,lng1],[lat2,lng2]], {weight:12, opacity:0, interactive:true});
+    const popupHtml = flightsForPair.map(f=>{
+      const dateIso = f.date && f.date.includes('.') ? f.date.split('.').reverse().join('-') : f.date;
+      const params = new URLSearchParams({
+        origin: f.origin || "",
+        destination: f.destination || "",
+        date: dateIso || "",
+        flight: f.flight_number || "",
+        adults: "1"
+      });
+      const url = "https://booking.chukotavia.com/websky/#/search?" + params.toString();
+      return `<div class="popup-flight"><strong>${f.origin} → ${f.destination}</strong><br>
+        ${f.date || ""} ${f.departure || ""}–${f.arrival || ""} №${f.flight_number} — ${Number(f.price||0).toLocaleString()} ₽ (${f.available||""} мест)
+        <br><a href="${url}" target="_blank" rel="noopener">Открыть в бронировании</a>
+      </div>`;
+    }).join("<hr style='border:none;border-top:1px solid #eee;margin:6px 0'>");
+
+    poly.bindPopup(popupHtml);
+    interactionGroup.addLayer(poly);
+
+    // добавить в bounds
     latlngsForBounds.push([lat1,lng1],[lat2,lng2]);
+
+    // маркеры будут добавлены ниже (по уникальным кодам)
+    usedAirports.add(origin);
+    usedAirports.add(destination);
   });
 
   // Добавим маркеры для использованных аэропортов
@@ -416,6 +477,16 @@ function drawRoutes(list){
     marker.bindPopup(`<strong>${code}</strong>`);
     markersGroup.addLayer(marker);
   });
+
+  // Показать список отсутствующих кодов, если есть
+  if(missing.size){
+    missingNotice.style.display = "";
+    missingList.textContent = Array.from(missing).join(", ");
+    console.warn("Missing airport coordinates for:", Array.from(missing));
+  } else {
+    missingNotice.style.display = "none";
+    missingList.textContent = "";
+  }
 
   // Подогнать карту под видимые маршруты
   if(latlngsForBounds.length){
@@ -442,7 +513,7 @@ document.querySelectorAll(".aircraft-card").forEach(c=>{
 function zoomToRoute(f){
   if(!f || !f.origin || !f.destination) return;
   if(!AIRPORTS[f.origin] || !AIRPORTS[f.destination]) {
-    alert("Координаты аэропорта не найдены: " + (AIRPORTS[f.origin] ? f.destination : f.origin));
+    alert("Координаты аэропорта не найдены: " + (AIRPORTS[f.origin] ? f.destination : f.origin) + ". Добавьте координаты в AIRPORTS в index.html.");
     return;
   }
   let [lat1,lng1]=AIRPORTS[f.origin];
@@ -453,6 +524,22 @@ function zoomToRoute(f){
   }
   const bounds = L.latLngBounds([[lat1,lng1],[lat2,lng2]]);
   map.fitBounds(bounds.pad(0.25));
+}
+
+/* ===== БРОНИРОВАНИЕ: переход на booking.chukotavia.com с параметрами ===== */
+function openBookingForFlight(f){
+  if(!f) return;
+  // преобразуем дату из dd.mm.yyyy -> yyyy-mm-dd
+  const dateIso = f.date && f.date.includes('.') ? f.date.split('.').reverse().join('-') : f.date || "";
+  const params = new URLSearchParams({
+    origin: f.origin || "",
+    destination: f.destination || "",
+    date: dateIso,
+    flight: f.flight_number || "",
+    adults: "1"
+  });
+  const url = "https://booking.chukotavia.com/websky/#/search?" + params.toString();
+  window.open(url, "_blank");
 }
 </script>
 
