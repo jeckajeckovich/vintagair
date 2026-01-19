@@ -11,18 +11,38 @@
 body { font-family: Arial, sans-serif; padding:20px; background:#f4f6f8; }
 header { display:flex; align-items:center; gap:15px; margin-bottom:20px; }
 
-.aircraft-showcase { display:flex; gap:16px; margin-bottom:16px; }
-.aircraft-card {
-  min-width:150px; background:#fff; border-radius:14px; padding:16px;
-  text-align:center; cursor:pointer; border:2px solid transparent;
-  box-shadow:0 4px 12px rgba(0,0,0,.08);
+/* ===== ВИТРИНА ===== */
+.aircraft-showcase {
+  display:flex;
+  gap:16px;
+  margin-bottom:20px;
+  justify-content:center;
 }
-.aircraft-card.active { border-color:#1e88e5; background:#e3f2fd; }
+.aircraft-card {
+  min-width:150px;
+  background:#fff;
+  border-radius:14px;
+  padding:16px;
+  text-align:center;
+  cursor:pointer;
+  border:2px solid transparent;
+  box-shadow:0 4px 12px rgba(0,0,0,.08);
+  transition:.2s;
+}
+.aircraft-card.active {
+  border-color:#1e88e5;
+  background:#e3f2fd;
+}
 
 .filters, .sortbar {
-  background:#fff; padding:12px; border-radius:10px;
-  display:flex; gap:10px; flex-wrap:wrap;
+  background:#fff;
+  padding:12px;
+  border-radius:10px;
+  display:flex;
+  gap:10px;
+  flex-wrap:wrap;
   box-shadow:0 2px 6px rgba(0,0,0,.1);
+  margin-bottom:12px;
 }
 
 table { width:100%; border-collapse:collapse; background:#fff; margin-top:20px; }
@@ -30,8 +50,13 @@ th,td { border:1px solid #ccc; padding:6px; text-align:center; }
 th { background:#eee; }
 
 .buy {
-  background:#1e88e5; color:#fff; border:none;
-  min-width:110px; padding:6px 0; border-radius:4px;
+  background:#1e88e5;
+  color:#fff;
+  border:none;
+  min-width:110px;
+  padding:6px 0;
+  border-radius:4px;
+  cursor:pointer;
 }
 
 #map { height:420px; margin-top:30px; border-radius:10px; }
@@ -52,6 +77,8 @@ th { background:#eee; }
   <div class="aircraft-card active" data-type="">🌍 Вся сеть</div>
 </div>
 
+<h4>Установите параметры поиска</h4>
+
 <!-- ===== ФИЛЬТРЫ ===== -->
 <div class="filters">
   <select id="from"><option value="">Откуда</option></select>
@@ -60,6 +87,8 @@ th { background:#eee; }
   <input type="date" id="dateTo">
   <button onclick="resetAll()">Сброс</button>
 </div>
+
+<h4>Отсортировать по: времени и стоимости</h4>
 
 <!-- ===== СОРТИРОВКА ===== -->
 <div class="sortbar">
@@ -86,11 +115,19 @@ let activeAircraftType="";
 let sortMode="date";
 
 const AIRPORTS={
-  DYR:[64.734,177.741], PVS:[64.378,-173.242], PWE:[69.783,170.597],
-  KPW:[67.845,166.139], KVM:[62.591,174.520], ЭГТ:[66.320,179.122]
+  DYR:[64.734,177.741],
+  PVS:[64.378,-173.242],
+  PWE:[69.783,170.597],
+  KPW:[67.845,166.139],
+  KVM:[62.591,174.520],
+  ЭГТ:[66.320,179.122]
 };
 
-const COLORS={ "AN-24":"#d32f2f", "DHC-6":"#1976d2", "MI":"#388e3c" };
+const COLORS={
+  "AN-24":"#d32f2f",
+  "DHC-6":"#1976d2",
+  "MI":"#388e3c"
+};
 
 function normalizeAircraft(a){
   a=a.toUpperCase();
@@ -131,19 +168,32 @@ function getFiltered(){
 
 function render(){
   let res=getFiltered();
-  res.sort((a,b)=> sortMode==="price" ? a.priceNum-b.priceNum : a.dateISO.localeCompare(b.dateISO));
+  res.sort((a,b)=> sortMode==="price"
+    ? a.priceNum-b.priceNum
+    : a.dateISO.localeCompare(b.dateISO)
+  );
+
   rows.innerHTML="";
   table.style.display=res.length?"table":"none";
 
   res.forEach(f=>{
     rows.innerHTML+=`
     <tr>
-      <td>${f.date}</td><td>${f.origin}</td><td>${f.destination}</td>
-      <td>${f.flight_number}</td><td>${f.departure}</td>
-      <td>${f.arrival}</td><td>${f.aircraft}</td>
-      <td><button class="buy">от ${f.priceNum.toLocaleString()} ₽</button></td>
+      <td>${f.date}</td>
+      <td>${f.origin}</td>
+      <td>${f.destination}</td>
+      <td>${f.flight_number}</td>
+      <td>${f.departure}</td>
+      <td>${f.arrival}</td>
+      <td>${f.aircraft}</td>
+      <td>
+        <a href="https://booking.chukotavia.com/websky/" target="_blank">
+          <button class="buy">от ${f.priceNum.toLocaleString()} ₽</button>
+        </a>
+      </td>
     </tr>`;
   });
+
   drawRoutes(res);
 }
 
@@ -152,8 +202,10 @@ function updateSelectors(){
   fill(to, flights.map(f=>f.destination), "Куда");
 }
 function fill(sel,arr,label){
+  const cur=sel.value;
   sel.innerHTML=`<option value="">${label}</option>`;
   [...new Set(arr)].sort().forEach(v=>sel.add(new Option(v,v)));
+  sel.value=cur;
 }
 
 function setSort(m){ sortMode=m; render(); }
@@ -177,11 +229,21 @@ function drawRoutes(list){
   layer.clearLayers();
   list.forEach(f=>{
     if(!AIRPORTS[f.origin]||!AIRPORTS[f.destination]) return;
-    let [a1,l1]=AIRPORTS[f.origin], [a2,l2]=AIRPORTS[f.destination];
+    let [a1,l1]=AIRPORTS[f.origin];
+    let [a2,l2]=AIRPORTS[f.destination];
     if(Math.abs(l1-l2)>180){ l1>l2?l1-=360:l2-=360; }
-    L.polyline([[a1,l1],[a2,l2]],{color:COLORS[f.aircraftType],weight:2}).addTo(layer);
+    L.polyline([[a1,l1],[a2,l2]],{
+      color:COLORS[f.aircraftType],
+      weight:2,
+      opacity:.85
+    }).addTo(layer);
   });
 }
+
+/* ===== АВТООБНОВЛЕНИЕ ФИЛЬТРОВ ===== */
+[from,to,dateFrom,dateTo].forEach(el=>{
+  el.addEventListener("change",render);
+});
 
 /* ===== ВИТРИНА ===== */
 document.querySelectorAll(".aircraft-card").forEach(c=>{
