@@ -126,16 +126,22 @@ const AIRPORTS={
 const COLORS={
   "AN-24":"#d32f2f",
   "DHC-6":"#1976d2",
-  "MI":"#388e3c"
+  "MI":"#388e3c",
+  "OTHER":"#555"
 };
 
+
 function normalizeAircraft(a){
-  a=a.toUpperCase();
-  if(a.includes("AN-24")) return "AN-24";
-  if(a.includes("DHC-6")) return "DHC-6";
-  if(a.includes("MI")) return "MI";
-  return "";
+  if (!a) return "OTHER";
+  a = a.toUpperCase();
+
+  if (a.includes("AN-24")) return "AN-24";
+  if (a.includes("DHC-6")) return "DHC-6";
+  if (a.includes("МИ") || a.includes("MI-8")) return "MI";
+
+  return "OTHER";
 }
+
 
 fetch("chukotavia_api_results.csv")
 .then(r=>r.text())
@@ -254,6 +260,9 @@ document.querySelectorAll(".aircraft-card").forEach(c=>{
     render();
   };
 });
+[from, to, dateFrom, dateTo].forEach(el=>{
+  el.addEventListener("change", render);
+});
 
 /* ===== DOM ===== */
 const from=document.getElementById("from");
@@ -266,3 +275,4 @@ const table=document.getElementById("table");
 
 </body>
 </html>
+
